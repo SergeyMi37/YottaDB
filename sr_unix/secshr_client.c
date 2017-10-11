@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -71,8 +74,8 @@ GBLREF ipcs_mesg		db_ipcs;
 GBLREF char			gtm_dist[GTM_PATH_MAX];
 GBLREF boolean_t		gtm_dist_ok_to_use;
 
-LITREF char			gtm_release_name[];
-LITREF int4			gtm_release_name_len;
+LITREF char			ydb_release_name[];
+LITREF int4			ydb_release_name_len;
 LITREF gtmImageName		gtmImageNames[];
 
 static int			secshr_sem;
@@ -107,7 +110,7 @@ const static char readonly *secshrstart_error_code[] = {
 };
 
 #define MAX_COMM_ATTEMPTS		4	/* 1 to start secshr, 2 maybe slow, 3 maybe really slow, 4 outside max */
-#define CLIENT_ACK_TIMER		5
+#define CLIENT_ACK_TIMER		5 * MILLISECS_IN_SEC
 
 #define START_SERVER										\
 {												\
@@ -141,8 +144,8 @@ const static char readonly *secshrstart_error_code[] = {
 	client_timer_popped = FALSE;								\
 	recv_complete = FALSE;									\
 	save_errno = 0;										\
-	msec_timeout = timeout2msec(CLIENT_ACK_TIMER);						\
-	start_timer(timer_id, msec_timeout, client_timer_handler, 0, NULL);			\
+	assert(MAXPOSINT4 >= CLIENT_ACK_TIMER);						\
+	start_timer(timer_id, CLIENT_ACK_TIMER, client_timer_handler, 0, NULL);			\
 }
 
 error_def(ERR_GTMDISTUNVERIF);
@@ -196,9 +199,7 @@ int send_mesg2gtmsecshr(unsigned int code, unsigned int id, char *path, int path
 				gtmImageNames[image_type].imageNameLen, gtmImageNames[image_type].imageName);
 	/* Create communication key (hash of release name) if it has not already been done */
 	if (0 == TREF(gtmsecshr_comkey))
-	{
-		STR_HASH((char *)gtm_release_name, gtm_release_name_len, TREF(gtmsecshr_comkey), 0);
-	}
+		STR_HASH((char *)ydb_release_name, ydb_release_name_len, TREF(gtmsecshr_comkey), 0);
 	timer_id = (TID)send_mesg2gtmsecshr;
 	if (!gtmsecshr_file_check_done)
 	{

@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2006-2016 Fidelity National Information	*
+ * Copyright (c) 2006-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -65,7 +68,6 @@ GBLREF	repl_msg_ptr_t		gtmrecv_msgp;
 GBLREF	uchar_ptr_t		repl_filter_buff;
 GBLREF	jnlpool_addrs		jnlpool;
 GBLREF	jnlpool_ctl_ptr_t	jnlpool_ctl;
-GBLREF	boolean_t		pool_init;
 
 error_def(ERR_SYSCALL);
 
@@ -163,15 +165,9 @@ int gtmrecv_end1(boolean_t auto_shutdown)
 		 */
 		if (!auto_shutdown && !INST_FREEZE_ON_ERROR_POLICY)
 		{
-			JNLPOOL_SHMDT(status, save_errno);
+			JNLPOOL_SHMDT(jnlpool, status, save_errno);
 			if (0 > status)
 				repl_log(stderr, TRUE, TRUE, "Error detaching from Journal Pool : %s\n", STRERROR(save_errno));
-			jnlpool.jnlpool_ctl = jnlpool_ctl = NULL;
-			jnlpool.repl_inst_filehdr = NULL;
-			jnlpool.gtmsrc_lcl_array = NULL;
-			jnlpool.gtmsource_local_array = NULL;
-			jnlpool.jnldata_base = NULL;
-			pool_init = FALSE;
 		}
 	} else
 		jnlpool_seqno = 0;
@@ -212,8 +208,7 @@ int gtmrecv_end1(boolean_t auto_shutdown)
 			log_seqno, repl_recv_data_processed, repl_recv_data_recvd);
 	repl_log(gtmrecv_log_fp, TRUE, TRUE, "REPL INFO - Last Seqno processed by update process : %llu\n", log_seqno1);
 	gtm_event_log_close();
-	if (gtmrecv_filter & EXTERNAL_FILTER)
-		repl_stop_filter();
+	STOP_EXTERNAL_FILTER_IF_NEEDED(gtmrecv_filter, gtmrecv_log_fp, "GTMRECV_END");
 	if (auto_shutdown)
 		return (exit_status);
 	else

@@ -1,11 +1,11 @@
 #################################################################
 #								#
-# Copyright (c) 2012-2016 Fidelity National Information		#
+# Copyright (c) 2012-2017 Fidelity National Information		#
 # Services, Inc. and/or its subsidiaries. All rights reserved.	#
-#                                                               #
-#  Copyright (c) 2017 Finxact, LLC. and/or its subsidiaries.    #
-#  All rights reserved.                                         #
 #								#
+# Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	#
+# All rights reserved.						#
+#                                                               #
 #	This source code contains the intellectual property	#
 #	of its copyright holder(s), and is made available	#
 #	under a license.  If you do not know the terms of	#
@@ -30,7 +30,7 @@ foreach(lang ${languages})
 endforeach()
 
 # Defaults
-set(version r1.0)
+set(version V63002_R100)
 if("${version}" STREQUAL "")
         set(version V9.9-0)
 endif()
@@ -38,6 +38,10 @@ endif()
 # If CMAKE_BUILD_TYPE is not defined make it a Release build
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+if(GTM_RELEASE_NAME)
+  add_definitions(-DGTM_RELEASE_NAME="${GTM_RELEASE_NAME}")
 endif()
 
 # Enable GT.M debug options unless directed not to enable them. Added to build without whitebox tests.
@@ -145,6 +149,7 @@ endforeach()
 include_directories(${includes})
 # We generate some uniquely-named headers in the top of the build tree.
 include_directories(${GTM_BINARY_DIR})
+include_directories(/usr/include/openssl-1.0)
 
 # Function to select the first instance of a given source file name
 # found in the ordered 'gt_src_list' search path.
@@ -173,7 +178,8 @@ macro(set_source_list target)
       if(";${sources_${d}};" MATCHES ";(${name}\\.(c|s|si));")
       	set(fname ${CMAKE_MATCH_1})
 	set(src ${d}/${fname})
-	set("source_used_${fname}" 1)
+	get_filename_component(fnoext ${fname} NAME_WE)
+	set("source_used_${fnoext}" 1)
 	list(APPEND sources_used ${source_dir_${d}}/${fname})
 	break()
       endif()
@@ -230,13 +236,14 @@ set_source_list(semstat2         semstat2)
 
 #-----------------------------------------------------------------------------
 # libmumps gets leftover sources, so compute the remaining list.
-set(source_used_dtgbldir.c 1) # exclude unused source
+set(source_used_dtgbldir 1) # exclude unused source
 set(libmumps_SOURCES "")
 foreach(d ${gt_src_list})
   foreach(s ${sources_${d}})
-    if(NOT source_used_${s} AND "${s}" MATCHES "\\.(c|s|si)$")
+    get_filename_component(snoext ${s} NAME_WE)
+    if(NOT source_used_${snoext} AND "${s}" MATCHES "\\.(c|s|si)$")
       list(APPEND libmumps_SOURCES ${d}/${s})
-      set(source_used_${s} 1)
+      set(source_used_${snoext} 1)
       list(APPEND sources_used ${source_dir_${d}}/${s})
     endif()
   endforeach()
@@ -402,6 +409,10 @@ if(gen_xfer_desc)
   add_dependencies(libmumps gen_xfer_desc)
 endif()
 
+function(add_executable target)
+  _add_executable(${target} ${ARGN})
+  set_target_properties(${target} PROPERTIES LINK_FLAGS "-Wl,-Map=${target}.map")
+endfunction()
 add_executable(mumps			${mumps_SOURCES})
 target_link_libraries(mumps		libmumps)
 
@@ -464,7 +475,7 @@ add_library(libgtmshr MODULE ${libgtmshr_SOURCES})
 set_property(TARGET libgtmshr PROPERTY OUTPUT_NAME gtmshr)
 target_link_libraries(libgtmshr libmumps libgnpclient libcmisockettcp)
 set_target_properties(libgtmshr PROPERTIES
-  LINK_FLAGS "${libgtmshr_link}"
+  LINK_FLAGS "${libgtmshr_link} -Wl,-Map=libgtmshr.map"
   LINK_DEPENDS "${libgtmshr_dep}"
   )
 add_dependencies(libgtmshr gen_export)
@@ -615,6 +626,7 @@ set(m_files_sr_port
   gdeexit.m
   gdehelp.m
   gdeinit.m
+  gdeinitsz.m
   gdelocks.m
   gdelog.m
   gdemap.m
@@ -691,6 +703,7 @@ foreach(f
   gtm_stdlib.h
   gtm_string.h
   gtm_strings.h
+  gtmgblstat.xc
   gtmxc_types.h
   main_pragma.h
   arch.gtc
@@ -710,6 +723,13 @@ foreach(f
   custom_errors_sample.txt
   )
   select_file(src ${f})
+  get_filename_component(srcfname "${src}" NAME)
+  add_custom_command(
+    OUTPUT "${GTM_BINARY_DIR}/${srcfname}"
+    DEPENDS "${src}"
+    COMMAND ${CMAKE_COMMAND} -E copy "${src}" "${GTM_BINARY_DIR}/${srcfname}"
+    )
+  list(APPEND files_to_place "${GTM_BINARY_DIR}/${srcfname}")
   list(APPEND files ${src})
 endforeach()
 install(FILES ${files} DESTINATION ${GTM_INSTALL_DIR})

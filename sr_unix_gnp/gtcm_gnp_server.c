@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -47,7 +50,6 @@
 #include "buddy_list.h"
 #include "hashtab_int4.h"
 #include "tp.h"
-#include "init_secshr_addrs.h"
 #include "cli.h"
 #include "cli_parse.h"
 #include "iosp.h"
@@ -249,6 +251,9 @@ static void gtcm_gnp_server_actions(void)
 				case CMMS_Q_QUERY:
 					reply = gtcmtr_query();
 					break;
+				case CMMS_Q_REVERSEQUERY:
+					reply = gtcmtr_reversequery();
+					break;
 				case CMMS_Q_ZWITHDRAW:
 					reply = gtcmtr_zwithdraw();
 					break;
@@ -264,14 +269,14 @@ static void gtcm_gnp_server_actions(void)
 				case CMMS_E_TERMINATE:
 					reply = gtcmtr_terminate(FALSE);
 					break;
-#ifdef notdef
+#				ifdef notdef
 				case CMMS_U_LKEDELETE:
 					reply = gtcmtr_lke_clearrep(curr_entry->clb_ptr, (clear_request *)curr_entry->clb_ptr->mbf);
 					break;
 				case CMMS_U_LKESHOW:
 					reply = gtcmtr_lke_showrep(curr_entry->clb_ptr, (show_request *)curr_entry->clb_ptr->mbf);
 					break;
-#endif
+#				endif
 				case CMMS_B_BUFRESIZE:
 					reply = CM_WRITE;
 					GET_USHORT(value, curr_entry->clb_ptr->mbf + 1);
@@ -471,7 +476,6 @@ int main(int argc, char **argv, char **envp)
 		EXIT(status);
 	}
 	atexit(gtcm_exi_handler);
-	INVOKE_INIT_SECSHR_ADDRS;
 	initialize_pattern_table();
 	/* Pre-allocate some timer blocks. */
 	prealloc_gt_timers();

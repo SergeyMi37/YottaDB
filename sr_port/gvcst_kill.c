@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -117,9 +120,6 @@ LITREF	mval	literal_null;
 LITREF	mval	*fndata_table[2][2];
 #endif
 LITREF	mval	literal_batch;
-
-#define SKIP_ASSERT_TRUE	TRUE
-#define SKIP_ASSERT_FALSE	FALSE
 
 #define	GOTO_RETRY(CDB_STATUS, SKIP_ASSERT)							\
 {												\
@@ -555,9 +555,21 @@ research:
 				left = &gvt_hist->h[lev];
 				right = &alt_hist->h[lev];
 				assert(0 != right->blk_num);
-				left_rec_stat = left_extra ? &left->prev_rec : &left->curr_rec;
+				/* Before using "left->prev_rec", ensure prev_rec.match & prev_rec.offset are initialized if needed.
+				 * If leaf level block, then it is guaranteed to be initialized as part of the "gvcst_search"
+				 * call above using "gv_currkey". If not a leaf level block, then the same "gvcst_search" call
+				 * above could have either used a clue or no clue. If no clue, then left->prev_rec would have been
+				 * initialized for sure. If using a clue, it is possible the clue came from a previous
+				 * $zprevious(^x("")) like call which skipped doing "gvcst_search_blk" on index blocks. If so
+				 * "left->prev_rec" would be uninitialized. But in that case, we would first descend into the
+				 * "else" block below and the "if (clue)" check there would succeed resulting in us restarting the
+				 * transaction which will discard the clue and search afresh thereby initializing "left->prev_rec".
+				 * Hence the ASSERT_PREV_REC_INITIALIZED usages below.
+				 */
 				if (left->blk_num == right->blk_num)
 				{
+					ASSERT_PREV_REC_INITIALIZED(left->prev_rec);
+					left_rec_stat = left_extra ? &left->prev_rec : &left->curr_rec;
 					cdb_status = gvcst_kill_blk(left, lev, gv_currkey, *left_rec_stat, right->curr_rec,
 									right_extra, &tp_cse);
 					assert(!dollar_tlevel || (NULL == tp_cse) || (left->cse == tp_cse));
@@ -588,6 +600,8 @@ research:
 					}
 					local_srch_rec.offset = ((blk_hdr_ptr_t)left->buffaddr)->bsiz;
 					local_srch_rec.match = 0;
+					ASSERT_PREV_REC_INITIALIZED(left->prev_rec);
+					left_rec_stat = left_extra ? &left->prev_rec : &left->curr_rec;
 					cdb_status = gvcst_kill_blk(left, lev, gv_currkey, *left_rec_stat,
 										local_srch_rec, FALSE, &tp_cse);
 					assert(!dollar_tlevel || (NULL == tp_cse) || (left->cse == tp_cse));
@@ -800,8 +814,14 @@ research:
 		if (!killing_chunks)
 			INCR_GVSTATS_COUNTER(csa, cnl, n_kill, 1);
 		if (gvt_root && (0 != gv_target->clue.end))
-		{	/* If clue is still valid, then the deletion was confined to a single block */
-			assert(gvt_hist->h[0].blk_num == alt_hist->h[0].blk_num);
+		{	/* If clue is still valid, then the deletion was confined to a single block. Assert that the block
+			 * numbers are identical. The only exception is if a GVTR_OP_TCOMMIT happened above causing
+			 * the blk_num in gvt_hist->h[0] to be assigned a valid block while alt_hist->h[0].blk_num stayed
+			 * an invalid block (the # that gets assigned to to-be-created block numbers while inside a TP fence).
+			 */
+			assert((gvt_hist->h[0].blk_num == alt_hist->h[0].blk_num)
+				|| (lcl_implicit_tstart && ((off_chain *)&alt_hist->h[0].blk_num)->flag
+					&& !((off_chain *)&gvt_hist->h[0].blk_num)->flag));
 			/* In this case, the "right hand" key (which was searched via gv_altkey) was the last search
 			 * and should become the clue.  Furthermore, the curr.match from this last search should be
 			 * the history's curr.match.  However, this record will have been shuffled to the position of

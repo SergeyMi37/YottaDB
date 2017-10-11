@@ -4,12 +4,17 @@
 # Copyright (c) 2009-2017 Fidelity National Information		#
 # Services, Inc. and/or its subsidiaries. All rights reserved.	#
 #								#
+# Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	#
+# All rights reserved.						#
+#								#
 #	This source code contains the intellectual property	#
 #	of its copyright holder(s), and is made available	#
 #	under a license.  If you do not know the terms of	#
 #	the license, please stop and do not read further.	#
 #								#
 #################################################################
+
+set -e		# exit right where an error occurs
 
 . ./arch.gtc
 
@@ -44,7 +49,9 @@ fi
 # which exist in both directories.
 
 if [ -d utf8 ]; then
-	(cd utf8; ln -s ../* . 2> /dev/null)
+	set +e		# Do not let potential "file exists" error cause script to exit so temporarily suspend set -e
+	(cd utf8; ln -s ../* . 2> /dev/null; exit 0)
+	set -e
 fi
 
 # Native shared library extension.
@@ -96,6 +103,8 @@ fi
 $echo "                     GT.M Configuration Script"
 $echo "Copyright 2009, 2014 Fidelity Information Services, Inc. Use of this"
 $echo "software is restricted by the provisions of your license agreement."
+$echo "Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries."
+$echo "All rights reserved."
 $echo ""
 
 # Native super user and group
@@ -218,8 +227,15 @@ if [ -d "utf8" ]; then
 		if [ "$resp" = "Y" -o "$resp" = "y" ] ; then
 			$echo "Enter ICU version (at least ICU version 3.6 is required. Enter as <major-ver>.<minor-ver>): \c"
 			read gtm_icu_version
-			icu_ver=`$echo $gtm_icu_version | sed 's/\.//'`
-			majmin=`$echo $icu_ver | cut -f 1 -d "."`
+			maj=`$echo $gtm_icu_version | cut -f 1 -d "."`
+			if [ "$maj" -ge "49" ] ; then
+				# Assuming the input is of the form 52.1. As of ICU 49 (aka 4.9),
+				# the version reported by icu-config --version is <major><minor>.<milli> and not <major>.<minor>
+				majmin=$maj
+			else
+				# Assuming the input is of the form 4.2.1
+				majmin=`$echo $gtm_icu_version | cut -d "." -f 1,2 | sed 's/\.//'`
+			fi
 			if [ "$majmin" -lt "36" ] ; then
 				$echo "WARNING: ICU version $gtm_icu_version is less than 3.6. \c"
 				$echo "UTF-8 support will not be installed"
@@ -246,7 +262,9 @@ if [ -d "utf8" ]; then
 				# Find the actual version'ed library to which libicuio.{so,sl,a} points to
 				icu_versioned_lib=`ls -l $libpath/libicuio$icu_ext | awk '{print $NF}'`
 				# Find out vital parameters
-				if [ $arch = "ibm" ]; then
+				if [ "$libpath/libicuio$icu_ext" = "$icu_versioned_lib" ]; then
+					majmin=""
+				elif [ $arch = "ibm" ]; then
 					# From the version'ed library(eg. libicuio36.0.a) extract out
 					# 36.0.a
 					full_icu_ver_string=`$echo $icu_versioned_lib | sed 's/libicuio//g'`
@@ -274,6 +292,7 @@ if [ -d "utf8" ]; then
 					is64bit_icu=`file $libpath/$icu_full_ver_lib 2>/dev/null | grep "64-bit" | wc -l`
 				elif [ $arch = "ibm" ] ; then
 					icu_full_ver_lib=`ls -l $libpath/libicuio$majmin$icu_ext 2>/dev/null | awk '{print $NF}'`
+					icu_full_ver_lib=`basename $icu_full_ver_lib`
 					is64bit_icu=`nm -X64 $libpath/$icu_full_ver_lib 2>/dev/null | head -n 1 | wc -l`
 				fi
 				# Make sure both GTM and ICU are in sync with object mode compatibility (eg both are 32 bit/64 bit )
@@ -284,12 +303,18 @@ if [ -d "utf8" ]; then
 				else
 					found_icu=0
 				fi
+				# The default ICU library on AIX is unversioned
+				if [ "$found_icu" -eq 1 -a "$majmin" = "" ] ; then majmin=0; fi
 				# If we have everything we want, then save the libpath that contains the proper ICU library and
 				# set the gtm_icu_version
 				if [ "$found_icu" -eq 1 -a "$majmin" -ge 36 ] ; then
 					save_icu_libpath="$libpath"
+					# "expr" used below can exit with 1 if $majmin is a multiple of 10 and so
+					# temporarily suspend "set -e"
+					set +e
 					minorver=`expr $majmin % 10`
 					majorver=`expr $majmin / 10`
+					set -e
 					gtm_icu_version="$majorver.$minorver"
 					export gtm_icu_version
 					break
@@ -378,19 +403,23 @@ if [ -f $file ]; then
 	fi
 fi
 # Install the .cshrc and .profile files
-cp -p gdedefaults gtmgblstat.xc gtmprofile gtmprofile_preV54000 gtm gtmcshrc $gtmdist
-chmod 0444 $gtmdist/gdedefaults
-chown $owner $gtmdist/gdedefaults
-chmod 0444 $gtmdist/gtmgblstat.xc
-chown $owner $gtmdist/gtmgblstat.xc
-chmod 0755 $gtmdist/gtmprofile
-chown $owner $gtmdist/gtmprofile
-chmod 0755 $gtmdist/gtmprofile_preV54000
-chown $owner $gtmdist/gtmprofile_preV54000
-chmod 0755 $gtmdist/gtm
-chown $owner $gtmdist/gtm
-chmod 0755 $gtmdist/gtmcshrc
-chown $owner $gtmdist/gtmcshrc
+for i in gdedefaults gtmgblstat.xc
+do
+	if [ -e $i ]; then
+		cp -p $i $gtmdist
+		chmod 0444 $gtmdist/$i
+		chown $owner $gtmdist/$i
+	fi
+done
+
+for i in gtmprofile gtmprofile_preV54000 gtm gtmcshrc
+do
+	if [ -e $i ]; then
+		cp -p $i $gtmdist
+		chmod 0755 $gtmdist/$i
+		chown $owner $gtmdist/$i
+	fi
+done
 
 # Install the normal scripts
 for i in $nscripts
@@ -434,7 +463,9 @@ done
 # command is required on many modern SELinux based systems but depends on the filesystem in use (requires context
 # support). For that reason, we attempt the command and if it works, great. If it doesn't, oh well we tried.
 if [ -f /usr/bin/chcon ]; then
-	chcon -t texrel_shlib_t $gtmdist/libgtmshr$ext > /dev/null 2>&1
+	set +e		# Do not let potential "chcon" error cause script to exit so temporarily suspend set -e
+	(chcon -t texrel_shlib_t $gtmdist/libgtmshr$ext; exit 0)
+	set -e
 fi
 
 # Create $gtmdist/plugin/gtmcrypt directory if this platform supports encryption
@@ -758,7 +789,7 @@ fi
 # this could include compile and/or library load errors
 if [ 0 != `grep -c '[1-9]' $gtm_dist/compstat` ]; then
 	$echo ""
-	$echo "GT.M installation FAILED – please review error messages"
+	$echo "GT.M installation FAILED -- please review error messages"
 	$echo ""
 	chmod -R a-x $gtmdist
 	exit 1

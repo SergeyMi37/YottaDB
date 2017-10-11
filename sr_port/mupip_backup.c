@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -129,9 +132,6 @@ GBLREF	jnlpool_ctl_ptr_t	jnlpool_ctl;
 GBLREF	uint4			mutex_per_process_init_pid;
 GBLREF	boolean_t		holds_sem[NUM_SEM_SETS][NUM_SRC_SEMS];
 GBLREF	boolean_t		pool_init;
-
-LITREF char             gtm_release_name[];
-LITREF int4             gtm_release_name_len;
 
 error_def(ERR_BACKUPCTRL);
 error_def(ERR_BACKUPKILLIP);
@@ -1390,7 +1390,7 @@ repl_inst_bkup_done2:
 			rptr->backup_hdr->shmid = INVALID_SHMID;
 			rptr->backup_hdr->gt_sem_ctime.ctime = 0;
 			rptr->backup_hdr->gt_shm_ctime.ctime = 0;
-			if (jnl_options[jnl_off] || bkdbjnl_off_specified)
+			if ((jnl_options[jnl_off] || bkdbjnl_off_specified) && (jnl_notallowed != gv_cur_region->jnl_state))
 				rptr->backup_hdr->jnl_state = jnl_closed;
 			if (jnl_options[jnl_disable] || bkdbjnl_disable_specified)
 			{

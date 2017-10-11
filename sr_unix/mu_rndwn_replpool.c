@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -68,8 +71,8 @@ GBLREF	mur_opt_struct		mur_options;
 GBLREF	uint4			mutex_per_process_init_pid;
 GBLREF	uint4			process_id;
 
-LITREF char             	gtm_release_name[];
-LITREF int4             	gtm_release_name_len;
+LITREF char             	ydb_release_name[];
+LITREF int4             	ydb_release_name_len;
 
 error_def(ERR_REPLACCSEM);
 error_def(ERR_REPLINSTOPEN);
@@ -117,10 +120,10 @@ int     mu_rndwn_replpool2(replpool_identifier *replpool_id, repl_inst_hdr_ptr_t
 		DETACH(start_addr, shm_id, instfilename);
 		return -1;
 	}
-	if (memcmp(replpool_id->now_running, gtm_release_name, gtm_release_name_len + 1))
+	if (memcmp(replpool_id->now_running, ydb_release_name, ydb_release_name_len + 1))
 	{
 		util_out_print("Attempt to access with version !AD, while already using !AD for replpool segment (id = !UL)"
-				" belonging to replication instance !AD.", TRUE, gtm_release_name_len, gtm_release_name,
+				" belonging to replication instance !AD.", TRUE, ydb_release_name_len, ydb_release_name,
 				LEN_AND_STR(replpool_id->now_running), shm_id, LEN_AND_STR(instfilename));
 		DETACH(start_addr, shm_id, instfilename);
 		return -1;
@@ -171,12 +174,7 @@ int     mu_rndwn_replpool2(replpool_identifier *replpool_id, repl_inst_hdr_ptr_t
 				 * "jnlpool.repl_inst_filehdr" as otherwise other routines (e.g. "repl_inst_recvpool_reset") are
 				 * affected by whether this is NULL or not.
 				 */
-				jnlpool.jnlpool_ctl = NULL;
-				jnlpool_ctl = NULL;
-				jnlpool.gtmsrc_lcl_array = NULL;
-				jnlpool.gtmsource_local_array = NULL;
-				jnlpool.jnldata_base = NULL;
-				jnlpool.repl_inst_filehdr = NULL;
+				JNLPOOL_CLEAR_FIELDS(jnlpool);
 			}
 		} /* else we are ONLINE ROLLBACK. repl_inst_flush_jnlpool will be done later after gvcst_init in mur_open_files */
 	}
@@ -231,12 +229,8 @@ int     mu_rndwn_replpool2(replpool_identifier *replpool_id, repl_inst_hdr_ptr_t
 			 */
 			if (argumentless_rundown)
 			{
-				JNLPOOL_SHMDT(status, save_errno);
+				JNLPOOL_SHMDT(jnlpool, status, save_errno);
 				assert(0 == status);	/* even if shmdt fails, there is not much we can do so move on in pro */
-				jnlpool.gtmsrc_lcl_array = NULL;
-				jnlpool.gtmsource_local_array = NULL;
-				jnlpool.jnldata_base = NULL;
-				jnlpool.repl_inst_filehdr = NULL;
 			}
 		}
 		if (RECVPOOL_SEGMENT == pool_type)
@@ -290,7 +284,7 @@ CONDITION_HANDLER(mu_rndwn_replpool_ch)
 {
 	unix_db_info		*udi;
 	int			status, save_errno;
-	repl_inst_hdr_ptr_t	inst_hdr;
+	int			jnlpool_shmid;
 
 	START_CH(TRUE);
 	PRN_ERROR; /* flush the error string */
@@ -305,22 +299,15 @@ CONDITION_HANDLER(mu_rndwn_replpool_ch)
 	 */
 	if ((NULL != jnlpool.jnlpool_ctl) && (!INST_FREEZE_ON_ERROR_POLICY || argumentless_rundown))
 	{
-		JNLPOOL_SHMDT(status, save_errno);
+		jnlpool_shmid = jnlpool.repl_inst_filehdr->jnlpool_shmid;
+		JNLPOOL_SHMDT(jnlpool, status, save_errno);
 		if (0 > status)
 		{
-			inst_hdr = jnlpool.repl_inst_filehdr;
-			assert(NULL != inst_hdr);
 			assert(NULL != jnlpool.jnlpool_dummy_reg);
 			udi = FILE_INFO(jnlpool.jnlpool_dummy_reg);
 			assert(ERR_REPLINSTOPEN == SIGNAL); /* only reason we know why mu_rndwn_replpool can fail */
-			assert(NULL != jnlpool.jnlpool_ctl);
-			assert(INVALID_SHMID != inst_hdr->jnlpool_shmid);
-			ISSUE_REPLPOOLINST(save_errno, inst_hdr->jnlpool_shmid, udi->fn, "shmdt()");
+			ISSUE_REPLPOOLINST(save_errno, jnlpool_shmid, udi->fn, "shmdt()");
 		}
-		jnlpool.gtmsrc_lcl_array = NULL;
-		jnlpool.gtmsource_local_array = NULL;
-		jnlpool.jnldata_base = NULL;
-		jnlpool.repl_inst_filehdr = NULL;
 	}
 	UNWIND(NULL, NULL);
 }

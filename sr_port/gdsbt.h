@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -285,17 +288,6 @@ typedef struct
 #define	SECSHR_OPS_ARRAY_SIZE		1023		/* 1 less than 1K to accommodate the variable secshr_ops_index */
 #define FTOK_OPS_ARRAY_SIZE		 512
 
-/* SECSHR_ACCOUNTING macro assumes csa->nl is dereferencible and does accounting if variable "do_accounting" is set to TRUE */
-#define		SECSHR_ACCOUNTING(value)								\
-{													\
-	if (do_accounting)										\
-	{												\
-		if (csa->nl->secshr_ops_index < SECSHR_OPS_ARRAY_SIZE)					\
-			csa->nl->secshr_ops_array[csa->nl->secshr_ops_index] = (gtm_uint64_t)(value);	\
-		csa->nl->secshr_ops_index++;								\
-	}												\
-}
-
 /*
  * Enable the GTM_CRYPT_UPDATES_REPORT define below to activate logging of encryption-related operations in shared memory. Those
  * operations currently include a write and read of an encrypted block (wcs_wtstart and dsk_read, respectively), update retry or
@@ -538,7 +530,7 @@ typedef struct node_local_struct
 {
 	unsigned char   label[GDS_LABEL_SZ];			/* 12	signature for GDS shared memory */
 	unsigned char	fname[MAX_FN_LEN + 1];			/* 256	filename of corresponding database */
-	char		now_running[MAX_REL_NAME];		/* 36	current active GT.M version stamp */
+	char		now_running[MAX_REL_NAME];		/* 36	current active YottaDB version stamp */
 	char		machine_name[MAX_MCNAMELEN];		/* 256	machine name for clustering */
 	sm_off_t	bt_header_off;				/* (QW alignment) offset to hash table */
 	sm_off_t	bt_base_off;				/* bt first entry */
@@ -695,6 +687,7 @@ typedef struct node_local_struct
 	uint4			saved_lock_space_size;
 	int4			saved_jnl_buffer_size;
 	/* Miscellaneous flag */
+	trans_num	update_underway_tn;
 	boolean_t	lastwriterbypas_msg_issued;	/* whether a LASTWRITERBYPAS message has been once issued for this db */
 	boolean_t	first_writer_seen;	/* Has a process with read-write access to the database opened it yet */
 	boolean_t	first_nonbypas_writer_seen;	/* TRUE when first writer is seen that also does not bypass ftok/access */

@@ -1,14 +1,16 @@
 #!/bin/sh -
 #################################################################
-#                                                               #
-# Copyright (c) 2014-2015 Fidelity National Information 	#
-# Services, Inc. and/or its subsidiaries. All rights reserved.	#
-#                                                               #
-#       This source code contains the intellectual property     #
-#       of its copyright holder(s), and is made available       #
-#       under a license.  If you do not know the terms of       #
-#       the license, please stop and do not read further.       #
-#                                                               #
+# Copyright (c) 2014-2017 Fidelity National Information         #
+# Services, Inc. and/or its subsidiaries. All rights reserved.  #
+#								#
+# Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	#
+# All rights reserved.						#
+#								#
+#	This source code contains the intellectual property	#
+#	of its copyright holder(s), and is made available	#
+#	under a license.  If you do not know the terms of	#
+#	the license, please stop and do not read further.	#
+#								#
 #################################################################
 
 # This script automates the installation of GT.M as much as possible,
@@ -34,6 +36,8 @@
 # 2011-10-25  0.12 K.S. Bhaskar - Support option to delete .o files on shared library platforms
 # 2014-08-13  0.13 K.S. Bhaskar - Add verbosity around getting latest version and tarball, if requested
 # 2015-10-13  0.14 GT.M Staff   - Fix a few minor bugs
+# 2017-07-16  0.15 Sam Habiel   - --yottadb or --distrib https://github.com/YottaDB/YottaDB to install YottaDB
+# 2017-08-12  0.16 Christopher Edwards - Default to YottaDB
 
 # Turn on debugging if set
 if [ "Y" = "$gtm_debug" ] ; then set -x ; fi
@@ -84,6 +88,7 @@ dump_info()
     if [ -n "$gtm_user" ] ; then echo gtm_user " : " $gtm_user ; fi
     if [ -n "$gtm_verbose" ] ; then echo gtm_verbose " : " $gtm_verbose ; fi
     if [ -n "$gtm_version" ] ; then echo gtm_version " : " $gtm_version ; fi
+    if [ -n "$gtm_gtm" ] ; then echo gtm_gtm " : " $gtm_gtm ; fi
     if [ -n "$gtmroutines" ] ; then echo gtmroutines " : " $gtmroutines ; fi
     if [ -n "$timestamp" ] ; then echo timestamp " : " $timestamp ; fi
     if [ "Y" = "$gtm_debug" ] ; then set -x ; fi
@@ -102,6 +107,7 @@ err_exit()
     echo "--dry-run - do everything short of installing GT.M, including downloading the distribution"
     echo "--group group - group that should own the GT.M installation"
     echo "--group-restriction - limit execution to a group; defaults to unlimited if not specified"
+    echo "--gtm - Install GT.M instead of YottaDB"
     echo "--help - print this usage information"
     echo "--installdir dirname - directory where GT.M is to be installed; defaults to /usr/lib/fis-gtm/version_platform"
     m1="--keep-obj - keep .o files"
@@ -136,6 +142,17 @@ mktmpdir()
         *) tmpdirname=`mktemp -d` ;;
     esac
     echo $tmpdirname
+}
+
+read_yes_no()
+{
+	read resp
+	response=`echo $resp | tr '[a-z]' '[A-Z]'`
+	if [ "Y" = $response -o "YES" = $response ] ; then
+		echo "yes"
+	else
+		echo "no"
+	fi
 }
 
 # Defaults that can be over-ridden by command line options to follow
@@ -185,6 +202,10 @@ while [ $# -gt 0 ] ; do
             fi
             shift ;;
         --dry-run) gtm_dryrun="Y" ; shift ;;
+        --gtm)
+            gtm_distrib="https://api.github.com/repos/YottaDB/YottaDB/"
+            gtm_gtm="Y"
+            shift ;;
         --group-restriction) gtm_group_restriction="Y" ; shift ;; # must come before group*
         --group*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_group=$tmp
@@ -265,12 +286,14 @@ case ${gtm_hostos}_${gtm_arch} in
         gtm_ftp_dirname="hpux_ia64"
         gtm_flavor="ia64"
         gtm_install_flavor="IA64" ;;
-    linux_i586) gtm_sf_dirname="GT.M-x86-Linux"
+    linux_i586)
+        gtm_sf_dirname="GT.M-x86-Linux"
         gtm_ftp_dirname="linux"
         gtm_flavor="i586"
         gtm_install_flavor="x86"
         gtm_shlib_support="N" ;;
-    linux_i686) gtm_sf_dirname="GT.M-x86-Linux"
+    linux_i686)
+        gtm_sf_dirname="GT.M-x86-Linux"
         gtm_ftp_dirname="linux"
         gtm_flavor="i686"
         gtm_install_flavor="x86"
@@ -283,7 +306,8 @@ case ${gtm_hostos}_${gtm_arch} in
         gtm_ftp_dirname="linux_s390x"
         gtm_flavor="s390x"
         gtm_install_flavor="S390X" ;;
-    linux_x8664) gtm_sf_dirname="GT.M-amd64-Linux"
+    linux_x8664)
+        gtm_sf_dirname="GT.M-amd64-Linux"
         gtm_ftp_dirname="linux_x8664"
         gtm_flavor="x8664"
         gtm_install_flavor="x86_64" ;;
@@ -315,16 +339,22 @@ fi
 
 # See if GT.M version can be determined from meta data
 if [ -z "$gtm_distrib" ] ; then
-    gtm_distrib=http://sourceforge.net/projects/fis-gtm
+    gtm_distrib="https://api.github.com/repos/YottaDB/YottaDB/"
 fi
+if [ "Y" = "$gtm_gtm" ] ; then
+    gtm_distrib="http://sourceforge.net/projects/fis-gtm"
+fi
+
 gtm_tmp=`mktmpdir`
 mkdir $gtm_tmp/tmp
-if [ -z "$gtm_version" -o "latest" = "`echo "$gtm_version" | tr LATES lates`" ] ; then
+latest=`echo "$gtm_version" | tr LATES lates`
+if [ -z "$gtm_version" -o "latest" = "$latest" ] ; then
     case $gtm_distrib in
         http://sourceforge.net/projects/fis-gtm | https://sourceforge.net/projects/fis-gtm)
+            gtm_gtm="Y"
             if [ "Y" = "$gtm_verbose" ] ; then
-		echo wget ${gtm_distrib}/files/${gtm_sf_dirname}/latest to determine latest version
-		echo Check proxy settings if wget hangs
+               echo wget ${gtm_distrib}/files/${gtm_sf_dirname}/latest to determine latest version
+               echo Check proxy settings if wget hangs
             fi
             if { wget $wget_flags $gtm_tmp ${gtm_distrib}/files/${gtm_sf_dirname}/latest 2>&1 1>${gtm_tmp}/wget_latest.log ; } ; then
                 gtm_version=`cat ${gtm_tmp}/latest`
@@ -332,12 +362,20 @@ if [ -z "$gtm_version" -o "latest" = "`echo "$gtm_version" | tr LATES lates`" ] 
             fi ;;
         ftp://*)
             if [ "Y" = "$gtm_verbose" ] ; then
-		echo wget $gtm_tmp ${gtm_distrib}/${gtm_ftp_dirname}/latest to determine latest version
-		echo Check proxy settings if wget hangs
+               echo wget $gtm_tmp ${gtm_distrib}/${gtm_ftp_dirname}/latest to determine latest version
+               echo Check proxy settings if wget hangs
             fi
             if { wget $wget_flags $gtm_tmp ${gtm_distrib}/${gtm_ftp_dirname}/latest 2>&1 1>${gtm_tmp}/wget_latest.log ; } ; then
                 gtm_version=`cat ${gtm_tmp}/latest`
             else echo Unable to determine GT.M version ; err_exit
+            fi ;;
+        https://api.github.com/repos/YottaDB/YottaDB* | https://github.com/YottaDB/YottaDB*)
+            if [ "Y" = "$gtm_verbose" ] ; then
+                echo wget https://api.github.com/repos/YottaDB/YottaDB/releases/latest to determine latest version
+                echo Check proxy settings if wget hangs
+            fi
+            if { wget $wget_flags $gtm_tmp https://api.github.com/repos/YottaDB/YottaDB/releases/latest 2>&1 1>${gtm_tmp}/wget_latest.log ; } ; then
+                gtm_version=`grep "tag_name" ${gtm_tmp}/latest | cut -d'"' -f4`
             fi ;;
         *)
             if [ -f ${gtm_distrib}/latest ] ; then
@@ -355,21 +393,33 @@ fi
 if [ -f "${gtm_distrib}/mumps" ] ; then gtm_tmp=$gtm_distrib
 else
     tmp=`echo $gtm_version | tr -d .-`
-    gtm_filename=gtm_${tmp}_${gtm_hostos}_${gtm_flavor}_${gtm_buildtype}.tar.gz
+    gtm_filename=""
+    if [ "Y" = "$gtm_gtm" ] ; then gtm_filename=gtm_${tmp}_${gtm_hostos}_${gtm_flavor}_${gtm_buildtype}.tar.gz ; fi
     case $gtm_distrib in
         http://sourceforge.net/projects/fis-gtm | https://sourceforge.net/projects/fis-gtm)
             if [ "Y" = "$gtm_verbose" ] ; then
-		echo wget ${gtm_distrib}/files/${gtm_sf_dirname}/${gtm_version}/${gtm_filename} to download tarball
-		echo Check proxy settings if wget hangs
+                echo wget ${gtm_distrib}/files/${gtm_sf_dirname}/${gtm_version}/${gtm_filename} to download tarball
+                echo Check proxy settings if wget hangs
             fi
             if { ! wget $wget_flags $gtm_tmp ${gtm_distrib}/files/${gtm_sf_dirname}/${gtm_version}/${gtm_filename} \
                 2>&1 1>${gtm_tmp}/wget_dist.log ; } ; then
                 echo Unable to download GT.M distribution $gtm_filename ; err_exit
             fi ;;
+        https://api.github.com/repos/YottaDB/YottaDB* | https://github.com/YottaDB/YottaDB*)
+            if [ "Y" = "$gtm_verbose" ] ; then
+                echo wget https://api.github.com/repos/YottaDB/YottaDB/releases/tags/${gtm_version} and parse to download tarball
+                echo Check proxy settings if wget hangs
+            fi
+            if { wget $wget_flags $gtm_tmp https://api.github.com/repos/YottaDB/YottaDB/releases/tags/${gtm_version} 2>&1 1>${gtm_tmp}/wget_dist.log ;} ; then
+                yottadb_download_url=`grep "browser_download_url" ${gtm_tmp}/${gtm_version} | cut -d'"' -f4`
+                gtm_filename=`basename ${yottadb_download_url}`
+                wget $wget_flags $gtm_tmp $yottadb_download_url
+                if [ ! -f ${gtm_tmp}/${gtm_filename} ]; then echo Unable to download GT.M distribution $gtm_filename ; err_exit; fi
+            fi ;;
         ftp://*)
             if [ "Y" = "$gtm_verbose" ] ; then
-		echo wget ${gtm_distrib}/${gtm_ftp_dirname}/${tmp}/${gtm_filename} to download tarball
-		echo Check proxy settings if wget hangs
+                echo wget ${gtm_distrib}/${gtm_ftp_dirname}/${tmp}/${gtm_filename} to download tarball
+                echo Check proxy settings if wget hangs
             fi
             if { ! wget $wget_flags $gtm_tmp ${gtm_distrib}/${gtm_ftp_dirname}/${tmp}/${gtm_filename} \
                 2>&1 1>${gtm_tmp}/wget_dist.log ; } ; then
@@ -405,9 +455,57 @@ if [ "root" = $tmp ] ; then
     else echo "Continuing because --dry-run selected"
     fi
 fi
-if [ -z "$gtm_installdir" ] ; then gtm_installdir=/usr/lib/fis-gtm/${gtm_version}_${gtm_install_flavor} ; fi
+if [ -z "$gtm_installdir" ] ; then
+    if [ -z "$gtm_gtm" ]; then
+         gtm_installdir=/usr/lib/yottadb/${gtm_version}_${gtm_install_flavor}
+    else gtm_installdir=/usr/lib/fis-gtm/${gtm_version}_${gtm_install_flavor}
+    fi
+fi
 if [ -d "$gtm_installdir" -a "Y" != "$gtm_overwrite_existing" ] ; then
     echo $gtm_installdir exists and --overwrite-existing not specified ; err_exit
+fi
+
+issystemd=`which systemctl`
+if [ "" != "$issystemd" ] ; then
+	# It is a systemd installation
+	logindconf="/etc/systemd/logind.conf"
+	removeipcopt=`awk -F = '/^RemoveIPC/ {opt=$2} END{print opt}' $logindconf`
+	if [ "no" != "$removeipcopt" ] ; then
+		# RemoveIPC=no is NOT the final settings in the file
+		ipcissue1="If RemoveIPC=yes is configured for systemd, ipcs (database shm & sem)"
+		ipcissue1="$ipcissue1 are removed for a non-system user's processes when that user logs out."
+		ipcissue2="That can cause database operations to fail with mysterious errors."
+
+		ipcline1="# GT.M : Override systemd default of RemoveIPC=yes to prevent automatic ipc removal of"
+		ipcline1="$ipcline1 Shared Memory Segments and Semaphore Arrays of orphaned databases"
+		ipcline2="RemoveIPC=no"
+		ipccmd="systemctl restart systemd-logind"
+
+		echo "$ipcissue1"
+		echo "$ipcissue2"
+		echo "The installation would like to add the below two lines to $logindconf"
+		echo "   $ipcline1"
+		echo "   $ipcline2"
+		echo "And issue the below command to restart systemd-logind"
+		echo "   $ipccmd"
+		echo -n "Do you wish to proceed (Y/N)? "
+		answer=`read_yes_no`
+		if [ "yes" != "$answer" ] ; then
+			echo "Will abort installation"
+			echo $ipcissue1
+			echo $ipcissue2
+			echo "Please add the below two lines to $logindconf"
+			echo "   $ipcline1"
+			echo "   $ipcline2"
+			echo "and restart systemd-logind using the below command, for example or by rebooting the system"
+			echo "   $ipccmd"
+			echo "and retry GT.M installation"
+			exit 1
+		fi
+		echo $ipcline1 >> $logindconf
+		echo $ipcline2 >> $logindconf
+		$ipccmd
+	fi
 fi
 if [ "Y" = "$gtm_verbose" ] ; then echo Finished checking options and assigning defaults ; dump_info ; fi
 
@@ -422,8 +520,11 @@ if { ! $gtm_id -gn bin 2>/dev/null 1>/dev/null ; } then
     fi
 fi
 echo $gtm_user >>$gtm_configure_in
-if [ "Y" = "$gtm_prompt_for_group" -o 54002 -le `echo $gtm_version | cut -s -d V -f 2- | tr -d A-Za-z.-` ] ; then
-    echo $gtm_group >>$gtm_configure_in
+if [ "Y" = "$gtm_gtm" ]; then
+    if [ "Y" = "$gtm_prompt_for_group" -o 54002 -le `echo $gtm_version | cut -s -d V -f 2- | tr -d A-Za-z.-` ] ; then
+	    echo $gtm_group >>$gtm_configure_in
+    fi
+    else echo $gtm_group >>$gtm_configure_in
 fi
 if [ "N" = "$gtm_group_already" ] ; then
     echo $gtm_group_restriction >>$gtm_configure_in
@@ -448,6 +549,9 @@ if [ "$gtm_distrib" != "$gtm_tmp" ] ; then
     chmod +w $gtm_tmp/tmp
     cd $gtm_tmp/tmp
 fi
+
+if [ -e configure.sh ] ; then rm -f configure.sh ; fi
+
 tmp=`head -1 configure | cut -f 1`
 if [ "#!/bin/sh" != "$tmp" ] ; then
     echo "#!/bin/sh" >configure.sh
@@ -459,7 +563,7 @@ chmod +x configure.sh
 if [ "Y" = "$gtm_dryrun" ] ; then echo Installation prepared in $gtm_tmp ; exit ; fi
 
 ./configure.sh <$gtm_configure_in 1> $gtm_tmp/configure_${timestamp}.out 2>$gtm_tmp/configure_${timestamp}.err
-if [ $? -gt 0 ] ; then cat $gtm_tmp/configure_${timestamp}.out $gtm_tmp/configure_${timestamp}.err ; fi
+if [ $? -gt 0 ] ; then echo "configure.sh failed. Output follows"; cat $gtm_tmp/configure_${timestamp}.out $gtm_tmp/configure_${timestamp}.err ; exit 1; fi
 if [ "Y" = "$gtm_verbose" ] ; then echo Installation complete ; ls -l $gtm_installdir ; fi
 
 # Create copies of environment scripts and gtm executable

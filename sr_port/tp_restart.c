@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -454,6 +457,12 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			case cdb_sc_gvtrootmod2:
 			case cdb_sc_gvtrootnonzero:
 			case cdb_sc_optrestart:
+			/* Note: No additional action needed for "cdb_sc_phase2waitfail" since if we are in the final retry,
+			 * we would have set wc_blocked (as part of the SET_WC_BLOCKED_FINAL_RETRY_IF_NEEDED call done
+			 * in t_retry/tp_tend/op_tcommit) and the "tp_crit_all_regions" call done below will call
+			 * "grab_crit" & "wcs_recover" which will fix the phase2-commit/non-zero-"cr->in_tend" issue.
+			 */
+			case cdb_sc_phase2waitfail:
 				assert(IS_FINAL_RETRY_CODE(status));
 				if (CDB_STAGNATE <= t_tries)
 				{
@@ -799,7 +808,7 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_REPLONLNRLBK);
 	if (handle_errors_internally)
 		REVERT;
-	TREF(expand_prev_key) = FALSE;	/* in case we did a "t_retry" in the middle of "gvcst_zprevious2" */
+	TREF(expand_prev_key) = FALSE; /* in case we did a "t_retry" in the middle of "gvcst_zprevious2" or "gvcst_reversequery2" */
 	GTMTRIG_ONLY(DBGTRIGR((stderr, "tp_restart: completed\n")));
 	return 0;
 }

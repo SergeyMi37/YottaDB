@@ -3,6 +3,9 @@
 # Copyright (c) 2001-2017 Fidelity National Information		#
 # Services, Inc. and/or its subsidiaries. All rights reserved.	#
 #								#
+# Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	#
+# All rights reserved.						#
+#								#
 #	This source code contains the intellectual property	#
 #	of its copyright holder(s), and is made available	#
 #	under a license.  If you do not know the terms of	#
@@ -167,6 +170,7 @@ if ( $?gtm_version_change == "1" ) then
             		setenv gt_cc_options_common "$gt_cc_options_common -DNeedInAddrPort"
         	endif
 		if ( "x86_64" == $mach_type ) then
+			set nonomatch
 			# Add flags for warnings that we want and don't want.
 			set desired_warnings = ( -Wall )
 			# The following warnings would be desirable, but together can result in megabytes of warning messages. We
@@ -201,6 +205,7 @@ if ( $?gtm_version_change == "1" ) then
 					setenv gt_cc_options_common "$gt_cc_options_common -Wno-${w:s/-W//}"
 				endif
 			end
+			unset nonomatch
 		endif
 	endif
 

@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -106,8 +109,8 @@ GBLREF	boolean_t		first_syslog;		/* Defined in util_output.c */
 GBLREF	char			gtm_dist[GTM_PATH_MAX];
 GBLREF	boolean_t		gtm_dist_ok_to_use;
 
-LITREF	char			gtm_release_name[];
-LITREF	int4			gtm_release_name_len;
+LITREF	char			ydb_release_name[];
+LITREF	int4			ydb_release_name_len;
 
 static	volatile int		gtmsecshr_timer_popped;
 static	int			gtmsecshr_socket_dir_len;
@@ -214,7 +217,6 @@ int main(int argc, char_ptr_t argv[])
 	int			save_errno;
 	int			recv_complete, send_complete;
 	int			num_chars_recd, num_chars_sent, rundir_len;
-	int4			msec_timeout;			/* timeout in milliseconds */
 	TID			timer_id;
 	GTM_SOCKLEN_TYPE	client_addr_len;
 	char			*recv_ptr, *send_ptr, *rundir;
@@ -225,6 +227,7 @@ int main(int argc, char_ptr_t argv[])
 	DCL_THREADGBL_ACCESS;
 
 	GTM_THREADGBL_INIT;
+	assert(MAXPOSINT4 >= GTMSECSHR_MESG_TIMEOUT);
 	common_startup_init(GTMSECSHR_IMAGE); 	/* Side-effect : Sets skip_dbtriggers = TRUE if platorm lacks trigger support */
 	err_init(gtmsecshr_cond_hndlr);
 	gtmsecshr_init(argv, &rundir, &rundir_len);
@@ -249,9 +252,8 @@ int main(int argc, char_ptr_t argv[])
 		}
 		recv_ptr = (char *)&mesg;
 		client_addr_len = SIZEOF(struct sockaddr_un);
-		msec_timeout = timeout2msec(GTMSECSHR_MESG_TIMEOUT);
-		DBGGSSHR((LOGFLAGS, "gtmsecshr: Select rc = %d  message timeout = %d\n", selstat, msec_timeout));
-		start_timer(timer_id, msec_timeout, gtmsecshr_timer_handler, 0, NULL);
+		DBGGSSHR((LOGFLAGS, "gtmsecshr: Select rc = %d  message timeout = %d\n", selstat, GTMSECSHR_MESG_TIMEOUT));
+		start_timer(timer_id, GTMSECSHR_MESG_TIMEOUT, gtmsecshr_timer_handler, 0, NULL);
 		recv_complete = FALSE;
 		do
 		{	/* Note RECVFROM does not loop on EINTR return codes so must be handled */
@@ -274,8 +276,7 @@ int main(int argc, char_ptr_t argv[])
 		if (INVALID_COMMAND != mesg.code)
 		{	/* Reply if code not overridden to mean no acknowledgement required */
 			send_ptr = (char *)&mesg;
-			msec_timeout = timeout2msec(GTMSECSHR_MESG_TIMEOUT);
-			start_timer(timer_id, msec_timeout, gtmsecshr_timer_handler, 0, NULL);
+			start_timer(timer_id, GTMSECSHR_MESG_TIMEOUT, gtmsecshr_timer_handler, 0, NULL);
 			send_complete = FALSE;
 			do
 			{
@@ -521,10 +522,10 @@ void gtmsecshr_init(char_ptr_t argv[], char **rundir, int *rundir_len)
 	/* Create communication key used in all gtmsecshr messages. Key's purpose is to eliminate cross-version
 	 * communication issues.
 	 */
-	STR_HASH((char *)gtm_release_name, gtm_release_name_len, TREF(gtmsecshr_comkey), 0);
+	STR_HASH((char *)ydb_release_name, ydb_release_name_len, TREF(gtmsecshr_comkey), 0);
 	/* Initialization complete */
 	send_msg_csa(CSA_ARG(NULL) VARLSTCNT(7) ERR_GTMSECSHRDMNSTARTED, 5,
-		gtmsecshr_key, gtm_release_name_len, gtm_release_name, *rundir_len, *rundir);
+		gtmsecshr_key, ydb_release_name_len, ydb_release_name, *rundir_len, *rundir);
 	return;
 }
 
