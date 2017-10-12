@@ -23,7 +23,10 @@
 int f_listlength(oprtype *a, opctype op)
 {
 	triple *r;
-	
+
+	DCL_THREADGBL_ACCESS;
+	SETUP_THREADGBL_ACCESS;
+
 	r = maketriple(op);
 	if (EXPR_FAIL == expr(&(r->operand[0]), MUMPS_STR))
 		return FALSE;
