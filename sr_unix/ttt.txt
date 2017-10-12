@@ -2,6 +2,8 @@
 ;								;
 ;	Copyright 2001, 2014 Fidelity Information Services, Inc	;
 ;								;
+; Copyright (c) 2005-2017 SP.ARM Ltd. St.Petersburg 		;
+;								;
 ; Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	;
 ; All rights reserved.						;
 ;								;
@@ -1081,3 +1083,68 @@ OC_INDQ2:	pushab	val.2
 		pushab	val.1
 		pushab	val.0
 		calls	#3,xfer.xf_indq2
+OC_FNLBUILD:	irepab	val.2
+		pushab	val.0
+		calls	val.1,xfer.xf_fnlbuild
+OC_FNLDATA:	pushab  val.0
+		pushl   val.2
+		pushab  val.1
+		calls   #3,xfer.xf_fnldata
+OC_FNLFIND:	pushab  val.0
+		pushl   val.3
+		pushab  val.2
+		pushab  val.1
+		calls   #4,xfer.xf_fnlfind
+OC_FNLISTFS:	pushab  val.0
+		pushab  val.2
+		pushab  val.1
+		calls   #3,xfer.xf_fnlistfs
+OC_FNLSAME:	pushab  val.0
+		pushab  val.2
+		pushab  val.1
+		calls   #3,xfer.xf_fnlsame
+OC_FNLNEXT:	pushab  val.0
+		pushab  val.3
+		pushab  val.2
+		pushab  val.1
+		calls   #4,xfer.xf_fnlnext
+OC_FNLISTTS:	pushab  val.0
+		pushl   val.3
+		pushab  val.2
+		pushab  val.1
+		calls   #4,xfer.xf_fnlistts
+OC_FNLUPDT:	irepab	val.2
+		pushab	val.0
+		calls	val.1,xfer.xf_fnlupdt
+OC_FNLVALID:	pushab  val.0
+		pushab  val.1
+		calls   #2,xfer.xf_fnlvalid
+OC_FNLGET:	pushab  val.0
+		pushab  val.3
+		pushl   val.2
+		pushab  val.1
+		calls   #4,xfer.xf_fnlget
+OC_FNLLENGTH:	pushab  val.0
+		pushab  val.1
+		calls   #2,xfer.xf_fnllength
+OC_FNLIST:	pushab  val.0
+		pushl   val.2
+		pushab  val.1
+		calls   #3,xfer.xf_fnlist
+OC_FNLISTFULL:	pushab  val.0
+		pushl   val.3
+		pushl   val.2
+		pushab  val.1
+		calls   #4,xfer.xf_fnlistfull
+OC_SETLISTFULL:	pushab	val.0
+		pushl	val.3
+		pushl	val.2
+		pushab	val.4
+		pushab	val.1
+		calls	#5,xfer.xf_setlistfull
+OC_SETLIST:	pushab	val.0
+		pushl	val.3
+		pushl	val.2
+		pushab	val.4
+		pushab	val.1
+		calls	#5,xfer.xf_setlist

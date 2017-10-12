@@ -1635,7 +1635,7 @@ RESYNCSEQLOW	<MUPIP JOURNAL -ROLLBACK -FORWARD -RESYNC=!@ZQ [0x!16@XQ] requested
 DBNULCOL	<NULL collation representation for record !UL in block !UL is !AD which differs from the database file header settings of !AD>/error/fao=6!/ansi=0
 UTF16ENDIAN	<The device previously set UTF-16 endianness to !AD and cannot change to !AD>/error/fao=4!/ansi=0
 OFRZACTIVE	<Region !AD has an Online Freeze>/warning/fao=2!/ansi=0
-OFRZAUTOREL	<Online Freeze automatically released for database file !AD>/warning/fao=2!/ansi=0
+OFRZAUTOREL	<Online Freeze automatically released for region !AD>/warning/fao=2!/ansi=0
 OFRZCRITREL	<Proceeding with a write to region !AD after Online Freeze while holding crit>/warning/fao=2!/ansi=0
 OFRZCRITSTUCK	<Unable to proceed with a write to region !AD with Online Freeze while holding crit. Region stuck until freeze is removed.>/warning/fao=2!/ansi=0
 OFRZNOTHELD	<Online Freeze had been automatically released for at least one region>/warning/fao=0!/ansi=0
@@ -1671,6 +1671,10 @@ MUCREFILERR	<Error in/at !AD creating database !AD (region !AD)>/error/fao=6!/an
 JNLBUFFPHS2SALVAGE	<Salvaged journal records from process !UL for database file !AD at transaction number [0x!16@XQ] and journal-sequence-number/unique-token [0x!16@XQ] with journal file starting offset [0x!XL] and length [0x!XL]>/info/fao=7!/ansi=0
 JNLPOOLPHS2SALVAGE	<Salvaged journal records from process !UL for replication instance file !AD at journal sequence number [0x!16@XQ] with journal pool starting offset [0x!16@XQ] and length [0x!XL]>/info/fao=6!/ansi=0
 MURNDWNARGLESS	<Argumentless MUPIP RUNDOWN started with process id !UL by userid !UL from directory !AD>/info/fao=4!/ansi=0
+LISTFORMAT	<Invalid format of list argument>/error/fao=0!/ansi=0
+LISTRANGE	<Invalid position in list>/error/fao=0!/ansi=0
+LISTNULL	<List NULL value in list element>/error/fao=0!/ansi=0
+LISTERR	<List error in list element>/error/fao=0!/ansi=0
 !
 ! If there are UNUSEDMSG* lines unused for more than one year and at least two non-patch releases, use them before adding new lines.
 !

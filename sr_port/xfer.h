@@ -1,7 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2005-2017 SP.ARM Ltd. St.Petersburg 		*
  *								*
  * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
  * All rights reserved.						*
@@ -324,4 +326,19 @@ XFER(xf_fnreversequery, op_fnreversequery),
 XFER(xf_gvreversequery, op_gvreversequery),
 XFER(xf_fnq2, op_fnq2),
 XFER(xf_gvq2, op_gvq2),
-XFER(xf_indq2, op_indq2)
+XFER(xf_indq2, op_indq2),
+XFER(xf_fnlbuild, op_fnlbuild),
+XFER(xf_fnldata, op_fnldata),
+XFER(xf_fnlfind, op_fnlfind),
+XFER(xf_fnlistfs, op_fnlistfs),
+XFER(xf_fnlget, op_fnlget),
+XFER(xf_fnllength, op_fnllength),
+XFER(xf_fnlsame, op_fnlsame),
+XFER(xf_fnlistts, op_fnlistts),
+XFER(xf_fnlvalid, op_fnlvalid),
+XFER(xf_fnlupdt, op_fnlupdt),
+XFER(xf_fnlnext, op_fnlnext),
+XFER(xf_fnlist, op_fnlist),
+XFER(xf_fnlistfull, op_fnlistfull),
+XFER(xf_setlistfull, op_setlistfull),
+XFER(xf_setlist, op_setlist)
