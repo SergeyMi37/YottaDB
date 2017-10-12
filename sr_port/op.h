@@ -3,6 +3,8 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2005-2017 SP.ARM Ltd. St.Petersburg 		*
+ *								*
  * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
  * All rights reserved.						*
  *								*
@@ -309,4 +311,19 @@ int	opp_zstepret();
 int	opp_zstepretarg();
 void	op_zut(mval *s);
 void	op_zwritesvn(int svn);
+void	op_fnlbuild(UNIX_ONLY_COMMA(int numarg) mval *dst, ...);
+void	op_fnldata(mval *src, int pos, mval *dst);
+void	op_fnlget(mval *src, int spos, mval *dflt, mval *dst);
+void	op_fnlfind(mval *src, mval *val, int pos, mval *dst);
+void	op_fnlistfs(mval *src, mval *val, mval *dst);
+void	op_fnlsame(mval *src, mval *val, mval *dst);
+void	op_fnllength(mval *src, mval *dst);
+void	op_fnlvalid(mval *src, mval *dst);
+void	op_fnlnext(mval *src, mval * valpos, mval * val, mval *dst);
+void	op_fnlist(mval *src, int start, mval *dst);
+void	op_fnlistts(mval *src, mval * del, int flag, mval *dst);
+void	op_fnlupdt(UNIX_ONLY_COMMA(int numarg) mval *dst, ...); 
+void	op_fnlistfull(mval *src, int start, int endpos, mval *dst);
+void	op_setlistfull(mval *src, mval *expr, int schar, int echar, mval *dst);
+void	op_setlist(mval *src, mval *expr, int spos, int epos, mval *dst);
 #endif

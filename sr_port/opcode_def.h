@@ -3,6 +3,8 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2005-2017 SP.ARM Ltd. St.Petersburg 		*
+ *								*
  * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
  * All rights reserved.						*
  *								*
@@ -13,8 +15,6 @@
  *								*
  ****************************************************************/
 /* defines opcodes and their associated octypes */
-
-
 
 /* start at line 20 to make arithmetic (add 20) easy for those debugging compilation */
 OPCODE_DEF(OC_NOOP, (OCT_CGSKIP))
@@ -353,5 +353,20 @@ OPCODE_DEF(OC_GVREVERSEQUERY, (OCT_MVAL | OCT_EXPRLEAF))
 OPCODE_DEF(OC_FNQ2, (OCT_MVAL | OCT_EXPRLEAF))
 OPCODE_DEF(OC_GVQ2, (OCT_MVAL | OCT_EXPRLEAF))
 OPCODE_DEF(OC_INDQ2, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLBUILD, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLDATA, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLFIND, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLISTFS, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLGET, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLLENGTH, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLSAME, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLISTTS, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLUPDT, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLNEXT, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLVALID, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLIST, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_FNLISTFULL, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_SETLISTFULL, (OCT_MVAL | OCT_EXPRLEAF))
+OPCODE_DEF(OC_SETLIST, (OCT_MVAL | OCT_EXPRLEAF))
 OPCODE_DEF(OC_LASTOPCODE, (OCT_CGSKIP))
 /* insert new opcodes before OC_LASTOPCODE */

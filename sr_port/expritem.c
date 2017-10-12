@@ -232,6 +232,18 @@ LITDEF nametabent fun_names[] =
 	,{1, "I"}, {4, "INCR"}, {8, "INCREMEN*"}
 	,{1, "J"}, {7, "JUSTIFY"}
 	,{1, "L"}, {6, "LENGTH"}
+	,{2, "LB"}, {8,"LISTBUIL*"}
+	,{2, "LD"}, {8,"LISTDATA"}
+	,{2, "LF"}, {8,"LISTFIND"}
+	,{3, "LFS"}, {8, "LISTFROM*"}
+	,{2, "LG"}, {7, "LISTGET"}
+	,{2, "LI"}, {4, "LIST"}
+	,{2, "LL"}, {8, "LISTLENG*"}
+	,{8, "LISTNEXT"}
+	,{2, "LS"}, {8,"LISTSAME"}
+	,{3, "LTS"}, {8, "LISTTOST*"}
+	,{2, "LU"}, {8, "LISTUPDA*"}
+	,{2, "LV"}, {8, "LISTVALI*"}
 	,{1, "N"}
 	,{2, "NA"}, {4, "NAME"}
 	,{4, "NEXT"}
@@ -304,8 +316,8 @@ LITDEF nametabent fun_names[] =
 LITDEF unsigned char fun_index[27] =
 {
 	 0,  2,  2,  4,  6,  8, 12, 14, 14,	/* a b c d e f g h i */
-	17, 19, 19, 21, 21, 25, 27, 29, 35,	/* j k l m n o p q r */
-	39, 43, 47, 47, 48, 48, 48, 48, 122	/* s t u v w x y z ~ */
+	17, 19, 19, 44, 44, 48, 50, 52, 58,	/* j k l m n o p q r */
+	62, 66, 70, 70, 71, 71, 71, 71, 145	/* s t u v w x y z ~ */
 };
 
 /* Each entry corresponds to an entry in fun_names */
@@ -321,6 +333,18 @@ LITDEF fun_data_type fun_data[] =
 	,{ OC_FNINCR, ALL_SYS }, { OC_FNINCR, ALL_SYS }, { OC_FNINCR, ALL_SYS }
 	,{ OC_FNJ2, ALL_SYS }, { OC_FNJ2, ALL_SYS }
 	,{ OC_FNLENGTH, ALL_SYS }, { OC_FNLENGTH, ALL_SYS }
+	,{ OC_FNLBUILD, ALL_SYS }, { OC_FNLBUILD, ALL_SYS }
+	,{ OC_FNLDATA, ALL_SYS }, { OC_FNLDATA, ALL_SYS }
+	,{ OC_FNLFIND, ALL_SYS }, { OC_FNLFIND, ALL_SYS }
+	,{ OC_FNLISTFS, ALL_SYS }, { OC_FNLISTFS, ALL_SYS }
+	,{ OC_FNLGET, ALL_SYS }, { OC_FNLGET, ALL_SYS }
+	,{ OC_FNLIST, ALL_SYS }, { OC_FNLIST, ALL_SYS }
+	,{ OC_FNLLENGTH, ALL_SYS }, { OC_FNLLENGTH, ALL_SYS }
+	,{ OC_FNLNEXT, ALL_SYS }
+	,{ OC_FNLSAME, ALL_SYS }, { OC_FNLSAME, ALL_SYS }
+	,{ OC_FNLISTTS, ALL_SYS }, { OC_FNLISTTS, ALL_SYS }
+	,{ OC_FNLUPDT, ALL_SYS }, { OC_FNLUPDT, ALL_SYS }
+	,{ OC_FNLVALID, ALL_SYS }, { OC_FNLVALID, ALL_SYS }
 	,{ OC_FNNEXT, ALL_SYS }
 	,{ OC_FNNAME, ALL_SYS }, { OC_FNNAME, ALL_SYS }
 	,{ OC_FNNEXT, ALL_SYS }
@@ -402,6 +426,18 @@ GBLDEF int (*fun_parse[])(oprtype *, opctype) =		/* contains addresses so can't 
 	f_incr, f_incr, f_incr,
 	f_justify, f_justify,
 	f_length, f_length,
+	f_listbuild, f_listbuild,
+	f_listdata, f_listdata,
+	f_listfind, f_listfind,
+	f_listfs, f_listfs,
+	f_listget, f_listget,
+	f_list, f_list,
+	f_listlength, f_listlength,
+	f_listnext,
+	f_listsame, f_listsame,
+	f_listts, f_listts,
+	f_listupdt, f_listupdt,
+	f_listvalid, f_listvalid,
 	f_next,
 	f_name, f_name,
 	f_next,
