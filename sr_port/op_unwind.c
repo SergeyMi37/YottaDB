@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2015 Fidelity National Information 	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -14,7 +17,7 @@
 
 #include "gtm_stdio.h"
 
-#include <rtnhdr.h>
+#include "rtnhdr.h"
 #include "stack_frame.h"
 #include "mv_stent.h"
 #include "tp_frame.h"
@@ -35,6 +38,7 @@
 #include "gdsfhead.h"
 #include "alias.h"
 #include "zr_unlink_rtn.h"
+#include "gtmio.h"
 #ifdef GTM_TRIGGER
 # include "gtm_trigger_trc.h"
 #endif
@@ -51,7 +55,6 @@ GBLREF	mval			*alias_retarg;
 GBLREF	boolean_t		tp_timeout_deferred;
 GBLREF	dollar_ecode_type	dollar_ecode;
 GBLREF	boolean_t		ztrap_explicit_null;
-GBLREF	mval			dollar_ztrap;
 GBLREF	boolean_t		dollar_zininterrupt;
 GBLREF	boolean_t		dollar_truth;
 
@@ -63,10 +66,13 @@ void op_unwind(void)
 {
 	rhdtyp			*rtnhdr;
 	mv_stent 		*mvc;
+	boolean_t		trig_forced_unwind;
 	DBGEHND_ONLY(stack_frame *prevfp;)
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
+	trig_forced_unwind = TREF(trig_forced_unwind); 	/* save a copy of global into local */
+	TREF(trig_forced_unwind) = FALSE;	/* reset this global right away in case we hit an error codepath below */
 	assert((frame_pointer < frame_pointer->old_frame_pointer) || (NULL == frame_pointer->old_frame_pointer));
 	if (frame_pointer->type & SFT_COUNT)
 	{	/* If unwinding a counted frame, make sure we clean up any alias return argument in flight */
@@ -99,11 +105,20 @@ void op_unwind(void)
 	assert(frame_pointer <= (stack_frame*)stackbase && frame_pointer > (stack_frame *)stacktop);
 	/* See if unwinding an indirect frame */
 	IF_INDR_FRAME_CLEANUP_CACHE_ENTRY(frame_pointer);
+	TREF(trig_forced_unwind) = trig_forced_unwind;	/* copy local back to global so "unw_mv_ent" can use that.
+							 * It is safe to do so as long as "unw_mv_ent" has no error codepath
+							 * which is true at this time.
+							 */
 	for (mvc = mv_chain; mvc < (mv_stent *)frame_pointer; )
 	{
 		unw_mv_ent(mvc);
 		mvc = (mv_stent *)(mvc->mv_st_next + (char *)mvc);
 	}
+	TREF(trig_forced_unwind) = FALSE;	/* Again, turn this global flag off while it is not needed in case of error below.
+						 * Note that even though "unw_mv_ent" could clear this global in case it unwound
+						 * a MVST_TRGR mv_stent, we are not guaranteed an MVST_TRGR mv_stent is there on
+						 * the M-stack in all calls to "op_unwind" and hence clear this here too.
+						 */
 	if (0 <= frame_pointer->dollar_test)		/* get dollar_test if it has been set */
 		dollar_truth = frame_pointer->dollar_test;
 	if (is_tracing_on GTMTRIG_ONLY( && !(frame_pointer->type & SFT_TRIGR)))

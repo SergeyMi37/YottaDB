@@ -3,7 +3,10 @@
 # Copyright (c) 2013-2017 Fidelity National Information		#
 # Services, Inc. and/or its subsidiaries. All rights reserved.	#
 #								#
-# Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	#
+# Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.	#
+# All rights reserved.						#
+#								#
+# Copyright (c) 2017-2018 Stephen L Johnson.			#
 # All rights reserved.						#
 #								#
 #	This source code contains the intellectual property	#
@@ -21,20 +24,20 @@ algo = AES256CFB
 # If the machine has a libgcrypt version <= 1.4.1, then FIPS mode cannot be turned on.
 gcrypt_nofips = 0
 
-# Verify that $gtm_dist is defined
-ifndef gtm_dist
-$(error $$gtm_dist not defined!)
+# Verify that $ydb_dist is defined
+ifndef ydb_dist
+$(error $$ydb_dist not defined!)
 endif
 
-DISTDIR = $(gtm_dist)
+DISTDIR = $(ydb_dist)
 PLUGINDIR = $(DISTDIR)/plugin
 GTMCRYPTDIR = $(PLUGINDIR)/gtmcrypt
 CURDIR = `pwd`
 
-# Find out whether we are already in $gtm_dist/plugin/gtmcrypt directory.
+# Find out whether we are already in $ydb_dist/plugin/gtmcrypt directory.
 NOT_IN_GTMCRYPTDIR = $(shell [ "$(CURDIR)" = "$(GTMCRYPTDIR)" ] ; echo $$?)
 
-# Users may install GT.M without Unicode support
+# Users may install YottaDB without Unicode support
 HAVE_UNICODE = $(shell [ -d "$(DISTDIR)/utf8" ] ; echo $$?)
 
 # Determine machine and OS type.
@@ -44,7 +47,7 @@ MACHTYPE = $(shell uname -m)
 ifneq (,$(findstring Linux,$(UNAMESTR)))
 	FILEFLAG = -L
 endif
-# 64 bit version of GT.M? 0 for yes!
+# 64 bit version of YottaDB? 0 for yes!
 BIT64 = $(shell file $(FILEFLAG) $(DISTDIR)/mumps | grep -q -E '64-bit|ELF-64'; echo $$?)
 
 # Determine if GPG 2.1+ is installed
@@ -98,7 +101,7 @@ IFLAGS =
 # Linux
 ifneq (,$(findstring Linux,$(UNAMESTR)))
 	# -fPIC for Position Independent Code.
-	CFLAGS += -fPIC
+	CFLAGS += -fPIC -std=c99 -D_GNU_SOURCE -D_XOPEN_SOURCE=600
 	LDFLAGS =
 	# So that dependent libraries are loaded from the parent library's load path at runtime
 	RPATHFLAGS = -Wl,-rpath,'$$ORIGIN'
@@ -108,6 +111,9 @@ ifneq (,$(findstring Linux,$(UNAMESTR)))
 	IFLAGS += -I /usr/include/openssl-1.0
 	ifeq ($(BIT64),0)
 		LIBFLAGS += -L /usr/local/ssl/lib -L /usr/lib/x86_64-linux-gnu
+	else ifneq (,$(findstring arm,$(MACHTYPE)))
+		IFLAGS += -I /usr/include/openssl -I /usr/lib/arm-linux-gnueabihf
+		LIBFLAGS += -L /usr/lib/arm-linux-gnueabihf
 	else
 		LIBFLAGS += -L /usr/local/ssl/lib -L /usr/lib/x86-linux-gnu
 	endif
@@ -124,7 +130,7 @@ ifneq (,$(findstring AIX,$(UNAMESTR)))
 	# -qro places string literals in read-only storage.
 	# -qroconst places constants in read-only storage.
 	# -q64 forces 64-bit object generation
-	CFLAGS += -qro -qroconst -q64
+	CFLAGS += -qro -qroconst -q64 -qlanglvl=stdc99
 	# -q64 for 64-bit object generation
 	# -brtl for allowing both '.a' and '.so' to be searched at runtime.
 	# -bhalt:5 is to disable warnings about duplicate symbols that come from
@@ -145,7 +151,7 @@ ifneq (,$(findstring AIX,$(UNAMESTR)))
 endif
 
 # Common header and library paths
-IFLAGS += -I /usr/local/include -I /usr/include -I $(gtm_dist) -I $(CURDIR)
+IFLAGS += -I /usr/local/include -I /usr/include -I $(ydb_dist) -I $(CURDIR)
 ifeq ($(BIT64),0)
 	LIBFLAGS += -L /usr/local/lib64
 	LIBFLAGS += -L /usr/local/lib -L /usr/lib64 -L /usr/lib -L /lib64 -L /lib -L `pwd`
@@ -211,14 +217,14 @@ install: all
 	echo "unmaskpwd: gtm_status_t gc_mask_unmask_passwd(I:gtm_string_t*,O:gtm_string_t*[512])" >> $(PLUGINDIR)/gpgagent.tab
 	ln -fs ./$(install_targ) $(PLUGINDIR)/libgtmcrypt.so
 	cp -pf pinentry.m $(PLUGINDIR)/r
-	(cd $(PLUGINDIR)/o      && env gtm_chset=M     ${gtm_dist}/mumps $(PLUGINDIR)/r/pinentry.m)
+	(cd $(PLUGINDIR)/o      && env gtm_chset=M     ${ydb_dist}/mumps $(PLUGINDIR)/r/pinentry.m)
 ifeq ($(NOT_IN_GTMCRYPTDIR),1)
 	cp -pf *.sh *.m $(GTMCRYPTDIR)/
 	cp -f maskpass $(GTMCRYPTDIR)/
 endif
 ifeq ($(HAVE_UNICODE),0)
 	@echo "UTF-8 mode library installation may fail if gtm_icu_version (${gtm_icu_version}) is not set"
-	(cd $(PLUGINDIR)/o/utf8 && env gtm_chset=UTF-8 ${gtm_dist}/mumps $(PLUGINDIR)/r/pinentry.m)
+	(cd $(PLUGINDIR)/o/utf8 && env gtm_chset=UTF-8 ${ydb_dist}/mumps $(PLUGINDIR)/r/pinentry.m)
 endif
 
 uninstall:

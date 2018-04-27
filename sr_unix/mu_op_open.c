@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  *	This source code contains the intellectual property	*
@@ -30,7 +30,6 @@
 #include "gt_timer.h"
 #include "copy.h"
 #include "iottdef.h"
-#include "iomtdef.h"
 #include "iormdef.h"
 #include "mupip_io_dev_dispatch.h"
 #include "eintr_wrappers.h"
@@ -72,8 +71,6 @@ int mu_op_open(mval *v, mval *p, mval *t, mval *mspace)
 	MV_FORCE_STR(p);
 	if (mspace)
 		MV_FORCE_STR(mspace);
-	if (0 > t)
-		t = 0;
 	assert((unsigned char)*p->str.addr < n_iops);
 	naml = get_log_name(&v->str, INSERT);
 	if (0 != naml->iod)

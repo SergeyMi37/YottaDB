@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -73,7 +76,7 @@
 										\
 	lcl_csd = CSA->hdr;							\
 	assert((NULL != lcl_csd)						\
-		|| (CSA == &FILE_INFO(jnlpool.jnlpool_dummy_reg)->s_addrs));	\
+		|| (CSA == &FILE_INFO(jnlpool->jnlpool_dummy_reg)->s_addrs));	\
 	if (NULL != lcl_csd)							\
 		BG_TRACE_PRO_ANY(CSA, EVENT);					\
 }
@@ -135,6 +138,8 @@ MBSTART {															\
 			(CSA)->probecrit_rec.p_crit_yields = (gtm_uint64_t)(YIELDS);						\
 			(CSA)->probecrit_rec.p_crit_que_slps = (gtm_uint64_t)(Q_SLPS);						\
 		}														\
+		if (save_jnlpool != jnlpool)											\
+			jnlpool = save_jnlpool;											\
 		return STATUS;													\
 	}															\
 } MBEND
@@ -142,7 +147,7 @@ MBSTART {															\
 
 GBLREF int			num_additional_processors;
 GBLREF jnl_gbls_t		jgbl;
-GBLREF jnlpool_addrs		jnlpool;
+GBLREF jnlpool_addrs_ptr_t	jnlpool;
 GBLREF uint4			process_id;
 GBLREF uint4			mutex_per_process_init_pid;
 #ifdef MUTEX_MSEM_WAKE
@@ -646,6 +651,7 @@ enum cdb_sc gtm_mutex_lock(gd_region *reg,
 	node_local		*cnl;
 	uint4			in_crit_pid;
 	sgmnt_addrs		*csa;
+	jnlpool_addrs_ptr_t	save_jnlpool;
 	time_t			curr_time;
 	uint4			curr_time_uint4, next_alert_uint4;
 	ABS_TIME 		atstart;
@@ -657,6 +663,7 @@ enum cdb_sc gtm_mutex_lock(gd_region *reg,
         SETUP_THREADGBL_ACCESS;
 	csa = &FILE_INFO(reg)->s_addrs;
 	assert(!csa->now_crit);
+	save_jnlpool = jnlpool;
 	cnl = csa->nl;
 	/* Check that "mutex_per_process_init" has happened before we try to grab crit and that it was done with our current
 	 * pid (i.e. ensure that even in the case where parent did the mutex init with its pid and did a fork, the child process
@@ -671,6 +678,7 @@ enum cdb_sc gtm_mutex_lock(gd_region *reg,
 	spins = yields = 0;
 	local_crit_cycle = 0;	/* this keeps us from doing a MUTEXLCKALERT on the first cycle in case the time latch is stale */
 	try_recovery = jgbl.onlnrlbk; /* salvage lock the first time if we are online rollback thereby reducing unnecessary waits */
+	assert(cnl);
 	epoch_count = cnl->doing_epoch;
 	addr = csa->critical;
 	if (csa->crit_probe)
@@ -729,10 +737,13 @@ enum cdb_sc gtm_mutex_lock(gd_region *reg,
 		assert(MAXUINT4 > curr_time);
 		curr_time_uint4 = (uint4)curr_time;
 		next_alert_uint4 = csa->critical->stuckexec.cas_time;
+		assert(save_jnlpool == jnlpool);
+		assert(!csa->jnlpool || (csa->jnlpool == jnlpool));
+		assert((curr_time_uint4 <= next_alert_uint4) || (!csa->jnlpool || (csa->jnlpool == jnlpool)));
 		if ((curr_time_uint4 > next_alert_uint4) && !IS_REPL_INST_FROZEN)
 		{	/* We've waited long enough and the Instance is not frozen - might be time to send MUTEXLCKALERT */
-			if (COMPSWAP_LOCK(&csa->critical->stuckexec.time_latch, next_alert_uint4, 0,
-				(curr_time_uint4 + MUTEXLCKALERT_INTERVAL), 0))
+			if (COMPSWAP_LOCK(&csa->critical->stuckexec.time_latch, next_alert_uint4,
+				(curr_time_uint4 + MUTEXLCKALERT_INTERVAL)))
 			{	/* and no one else beat us to it */
 				MUTEX_DPRINT3("%d: Acquired STUCKEXEC time lock, to trace %d\n", process_id, in_crit_pid);
 				if (process_id == in_crit_pid)
@@ -867,7 +878,11 @@ enum cdb_sc gtm_mutex_lock(gd_region *reg,
 						mutex_wake_proc((sm_int_ptr_t)&wake_this_pid, wake_instance);
 #					endif
 					if (0 != (--sleep_spin_cnt))
+					{
+						if (save_jnlpool != jnlpool)
+							jnlpool = save_jnlpool;
 						return (cdb_sc_dbccerr);	/* Too many failures */
+					}
 					assert(!csa->now_crit);
 					GTM_REL_QUANT(mutex_spin_parms->mutex_spin_sleep_mask);
 				} while (sleep_spin_cnt);		/* actually terminated by the return three lines above */
@@ -931,14 +946,15 @@ void mutex_cleanup(gd_region *reg)
 {
 	sgmnt_addrs	*csa;
 
-	/* mutex_cleanup is called after doing a rel_crit on the same area so if we still own the lock
-	   it is because csa->now_crit was not in sync with our semaphore. At this point, if we own
-	   the lock, go ahead and release it.
-	*/
+	/* mutex_cleanup is called after doing a rel_crit/rel_lock on the same area so if we still own the lock
+	 * it is because csa->now_crit was not in sync with our semaphore. At this point, if we own
+	 * the lock, go ahead and release it.
+	 */
 	csa = &FILE_INFO(reg)->s_addrs;
-	if (COMPSWAP_UNLOCK(&csa->critical->semaphore, process_id, CMPVAL2, LOCK_AVAILABLE, 0))
+	if (csa->critical->semaphore.u.parts.latch_pid == process_id)
 	{
-		MUTEX_DPRINT2("%d  mutex_cleanup : released lock\n", process_id);
+		if (COMPSWAP_UNLOCK(&csa->critical->semaphore, process_id, LOCK_AVAILABLE))
+			MUTEX_DPRINT2("%d  mutex_cleanup : released lock\n", process_id);
 	}
 }
 
@@ -984,7 +1000,7 @@ void mutex_salvage(gd_region *reg)
 		{	/* Release the COMPSWAP lock AFTER setting cnl->in_crit to 0 as an assert in
 			 * grab_crit (checking that cnl->in_crit is 0) relies on this order.
 			 */
-			send_msg_csa(CSA_ARG(csa) VARLSTCNT(5) ERR_MUTEXFRCDTERM, 3, holder_pid, REG_LEN_STR(reg));
+			send_msg_csa(CSA_ARG(csa) VARLSTCNT(5) ERR_MUTEXFRCDTERM, 3, holder_pid, DB_LEN_STR(reg));
 			cnl->in_crit = 0;
 			/* Mutex crash repaired, want to do write cache recovery, in case previous holder of crit had set
 			 * some cr->in_cw_set to a non-zero value. Not doing cache recovery could cause incorrect
@@ -992,12 +1008,13 @@ void mutex_salvage(gd_region *reg)
 			 * Take care not to do it for jnlpool (csa->hdr is NULL in that case) which has no concept of a db cache.
 			 */
 			csd = csa->hdr;
-			assert((NULL != csd) || (csa == &FILE_INFO(jnlpool.jnlpool_dummy_reg)->s_addrs));
+			assert((NULL != csd) || (NULL != jnlpool));
+			assert((NULL != csd) || (csa == &FILE_INFO(jnlpool->jnlpool_dummy_reg)->s_addrs));
 			if (NULL == csd)
 			{	/* This is a jnlpool. Check if a process in t_end/tp_tend was killed BEFORE
 				 * it incremented jpl->jnl_seqno. If so, undo any changes done in UPDATE_JPL_RSRV_WRITE_ADDR.
 				 */
-				jpl = jnlpool.jnlpool_ctl;
+				jpl = jnlpool->jnlpool_ctl;
 				assert(NULL != jpl);
 				index1 = jpl->phase2_commit_index1;
 				index2 = jpl->phase2_commit_index2;
@@ -1045,12 +1062,20 @@ void mutex_salvage(gd_region *reg)
 				 * Step CMT08 (see secshr_db_clnup.c) when it would have set cnl->update_underway_tn.
 				 * If so, undo any changes done in Step CMT06 (UPDATE_JBP_RSRV_FREEADDR).
 				 * Effectively rolling back the aborted commit in this region.
+				 * Notice that early_tn != curr_tn almost always implies a process in t_end/tp_tend
+				 * but in rare cases could also mean a process in the midst of a "wcs_recover". In the
+				 * latter case, we do not have any CMTxx steps to undo/redo. We identify the latter case
+				 * by checking if "cnl->last_wcs_recover_tn" is the same as "csd->trans_hist.curr_tn".
 				 */
 				assert((csd->trans_hist.early_tn == csd->trans_hist.curr_tn)
 					|| (csd->trans_hist.early_tn == (csd->trans_hist.curr_tn + 1)));
-				assert(cnl->update_underway_tn <= csd->trans_hist.curr_tn);
+				assert((cnl->update_underway_tn <= csd->trans_hist.curr_tn)
+					|| ((cnl->update_underway_tn == (csd->trans_hist.curr_tn + 1))
+						&& (csd->trans_hist.early_tn == (csd->trans_hist.curr_tn + 1))
+						&& (cnl->last_wcs_recover_tn == csd->trans_hist.curr_tn)));
 				assert(csd->trans_hist.early_tn >= cnl->update_underway_tn);
-				if (JNL_ENABLED(csd) && (csd->trans_hist.early_tn != csd->trans_hist.curr_tn))
+				if (JNL_ENABLED(csd) && (csd->trans_hist.early_tn != csd->trans_hist.curr_tn)
+					&& (cnl->last_wcs_recover_tn != csd->trans_hist.curr_tn))
 				{	/* i.e. Process was killed after CMT04 but before CMT12. It is represented as
 					 *	CMT04 < killed < CMT12
 					 */
@@ -1070,7 +1095,8 @@ void mutex_salvage(gd_region *reg)
 						 * ----------------------------------------------------------------
 						 */
 						start_freeaddr = lastJbufCmt->start_freeaddr;
-						if ((index1 == orig_index2) || (lastJbufCmt->process_id != holder_pid))
+						if ((index1 == orig_index2) || (lastJbufCmt->process_id != holder_pid)
+							|| (lastJbufCmt->curr_tn != csd->trans_hist.curr_tn))
 						{	/* CMT04 < KILLED <= CMT06.
 							 * Kill could have happened before CMT06 finished so reset things.
 							 * This reset is a no-op if the kill happened even before CMT06 started.
@@ -1173,7 +1199,7 @@ void mutex_salvage(gd_region *reg)
 									   * will recover CMT04 and other CMTxx steps.
 									   */
 			}
-			COMPSWAP_UNLOCK(&csa->critical->semaphore, holder_pid, holder_imgcnt, LOCK_AVAILABLE, 0);
+			COMPSWAP_UNLOCK(&csa->critical->semaphore, holder_pid, LOCK_AVAILABLE);
 			mutex_salvaged = TRUE;
 			/* Reset jbp->blocked as well if the holder_pid had it set */
 			if ((NULL != csa->jnl) && (NULL != csa->jnl->jnl_buff) && (csa->jnl->jnl_buff->blocked == holder_pid))
@@ -1191,7 +1217,7 @@ void mutex_salvage(gd_region *reg)
 		 * Take care not to do it for jnlpool which has no concept of a db cache.
 		 * In that case csa->hdr is NULL so check accordingly.
 		 */
-		assert((NULL != csa->hdr) || (csa == &FILE_INFO(jnlpool.jnlpool_dummy_reg)->s_addrs));
+		assert((NULL != csa->hdr) || (jnlpool && (csa == &FILE_INFO(jnlpool->jnlpool_dummy_reg)->s_addrs)));
 		if (mutex_salvaged && (NULL != csa->hdr))
 		{
 			SET_TRACEABLE_VAR(cnl->wc_blocked, TRUE);

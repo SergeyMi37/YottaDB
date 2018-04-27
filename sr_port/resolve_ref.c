@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -28,7 +31,7 @@ GBLREF boolean_t		run_time;
 GBLREF command_qualifier	cmd_qlf;
 GBLREF mlabel			*mlabtab;
 GBLREF triple			t_orig;
-GBLREF uint4			gtmDebugLevel;
+GBLREF uint4			ydbDebugLevel;
 
 error_def(ERR_ACTLSTTOOLONG);
 error_def(ERR_FMLLSTMISSING);
@@ -294,16 +297,13 @@ void resolve_tref(triple *curtrip, oprtype *opnd)
 	triple	*tripref;
 	tbp	*tripbp;
 
-	if (OC_PASSTHRU == (tripref = opnd->oprval.tref)->opcode)		/* note the assignment */
-	{
+	while (OC_PASSTHRU == (tripref = opnd->oprval.tref)->opcode)		/* note the assignment */
+	{	/* As many OC_PASSTHRUs as are stacked, we devour */
+		COMPDBG(PRINTF(" ** Passthru replacement: Operand at 0x%08lx replaced by operand at 0x%08lx\n",
+			       (unsigned long)opnd, (unsigned long)&tripref->operand[0]););
 		assert(TRIP_REF == tripref->operand[0].oprclass);
-		do
-		{	/* As many OC_PASSTHRUs as are stacked, we will devour */
-			*opnd = tripref->operand[0];
-		} while (OC_PASSTHRU == (tripref = opnd->oprval.tref)->opcode);	/* note the assignment */
+		*opnd = tripref->operand[0];
 	}
-	COMPDBG(PRINTF(" ** Passthru replacement: Operand at 0x%08lx replaced by operand at 0x%08lx\n",
-		       (unsigned long)opnd, (unsigned long)&tripref->operand[0]););
 	tripbp = (tbp *)mcalloc(SIZEOF(tbp));
 	tripbp->bpt = curtrip;
 	dqins(&opnd->oprval.tref->backptr, que, tripbp);

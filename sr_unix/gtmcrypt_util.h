@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2013-2017 Fidelity National Information	*
+ * Copyright (c) 2013-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -18,13 +21,14 @@
 #endif
 
 #include "gtm_sizeof.h"			/* For SIZEOF. */
-#include "gtm_limits.h"			/* For GTM_PATH_MAX. */
+#include "gtm_limits.h"			/* For YDB_PATH_MAX. */
 #include "gtm_common_defs.h"		/* To import common macros implemented by GT.M */
 
-#define GTM_DIST_ENV			"gtm_dist"
+#define YDB_DIST_ENV			"ydb_dist"
 #define USER_ENV			"USER"
 #define ENV_UNDEF_ERROR			"Environment variable %s not set"
 #define ENV_EMPTY_ERROR			"Environment variable %s set to empty string"
+#define ENV_TOOLONG_ERROR		"Environment variable %s is too long (%d)"
 
 #define MAX_GTMCRYPT_STR_ARG_LEN	256
 #define MAX_GTMCRYPT_ERR_STRLEN		2048
@@ -235,7 +239,7 @@ GBLREF gtm_free_fnptr_t		gtm_free_fnptr;
 
 GBLREF	char			gtmcrypt_err_string[MAX_GTMCRYPT_ERR_STRLEN];
 
-int				gc_load_gtmshr_symbols(void);
+int				gc_load_yottadb_symbols(void);
 void 				gtm_gcry_log_handler(void *opaque, int level, const char *fmt, va_list arg_ptr);
 int				gc_read_passwd(char *prompt, char *buf, int maxlen, void *tty);
 int				gc_mask_unmask_passwd(int nparm, gtm_string_t *in, gtm_string_t *out);

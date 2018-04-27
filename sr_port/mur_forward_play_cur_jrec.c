@@ -3,6 +3,9 @@
  * Copyright (c) 2010-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -46,6 +49,7 @@
 #include "gtmimagename.h"
 #include "gv_trigger_common.h"	/* for *HASHT* macros used inside GVNH_REG_INIT macro */
 #include "gtmcrypt.h"
+#include "op_tstart.h"
 
 GBLREF	gd_addr			*gd_header;
 GBLREF	gv_key			*gv_currkey;
@@ -104,7 +108,7 @@ uint4	mur_forward_play_cur_jrec(reg_ctl_list *rctl)
 	if (multi_proc_in_use)
 	{	/* Set key to print this rctl's region-name as prefix in case this forked off process prints any output.
 		 * e.g. If this function ends up calling t_end/op_tcommit which in turn needs to do a jnl autoswitch
-		 * inside jnl_file_extend and prints a GTM-I-FILERENAME message.
+		 * inside jnl_file_extend and prints a YDB-I-FILERENAME message.
 		 */
 		MUR_SET_MULTI_PROC_KEY(rctl, multi_proc_key);
 	}
@@ -175,8 +179,11 @@ uint4	mur_forward_play_cur_jrec(reg_ctl_list *rctl)
 	recstat = process_losttn ? LOST_TN : GOOD_TN;
 	status = SS_NORMAL;
 	if (FENCE_NONE != mur_options.fences)
-	{
-		if (IS_FENCED(rectype))
+	{	/* Note that a JRT_NULL record could also be part of a TP transaction
+		 * (see mur_back_process.c comment describing "jnl_phase2_salvage".
+		 * So check for that too when checking for fenced record types.
+		 */
+		if (IS_FENCED(rectype) || (JRT_NULL == rectype))
 		{
 			assert(rec_token_seq);
 #			ifdef DEBUG
@@ -267,7 +274,7 @@ uint4	mur_forward_play_cur_jrec(reg_ctl_list *rctl)
 			mv.mvtype = MV_STR;
 			mv.str.len = 0;
 			mv.str.addr = NULL;
-			op_tstart(IMPLICIT_TSTART, TRUE, &mv, -1);
+			op_tstart(IMPLICIT_TSTART, TRUE, &mv, NORESTART);
 			DEBUG_ONLY(jgbl.max_tp_ztp_jnl_upd_num = 0;)
 			DEBUG_ONLY(forw_recov_lgtrig_only = TRUE;)	/* gets reset later if a non-LGTRIG record is seen */
 		}

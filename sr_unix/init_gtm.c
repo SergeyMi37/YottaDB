@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -32,7 +35,7 @@
 #include "tp_timeout.h"
 #include "ctrlc_handler.h"
 #include "mprof.h"
-#include "gtm_startup_chk.h"
+#include "ydb_chk_dist.h"
 #include "gtm_compile.h"
 #include "gtm_startup.h"
 #include "jobchild_init.h"
@@ -177,7 +180,7 @@ void init_gtm(void)
 		EXIT(gtm_compile());
 	}
 	/* With the advent of reservedDBs, the ability to create a new database is not only in MUPIP but is in MUMPS too.
-	 * This means mucregini() (called by mu_cre_file()) is also in libgtmshr. But mucregini calls mupip_exit for certain
+	 * This means mucregini() (called by mu_cre_file()) is also in libyottadb. But mucregini calls mupip_exit for certain
 	 * types of errors we won't run into with reservedDBs. So, if mupip.c has not already initialized this function
 	 * pointer for mupip_exit to be used in mucregini() (MUPIP calls this routine too), then initialize it to point to a
 	 * routine that will assert fail if it is used in MUMPS .
@@ -189,7 +192,6 @@ void init_gtm(void)
 	svec.argcnt = SIZEOF(svec);
 	svec.rtn_start = svec.rtn_end = malloc(SIZEOF(rtn_tabent));
 	memset(svec.rtn_start, 0, SIZEOF(rtn_tabent));
-	svec.user_stack_size = (272 ZOS_ONLY(+ 64))* 1024;	/* ZOS stack frame 2x other platforms so give more stack */
 	svec.user_strpl_size = STP_INITSIZE_REQUESTED;
 	svec.ctrlc_enable = 1;
 	svec.break_message_mask = 31;

@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -10,8 +13,8 @@
  *								*
  ****************************************************************/
 
-#ifndef __TP_H__
-#define __TP_H__
+#ifndef TP_H
+#define TP_H
 
 #include <sys/types.h>
 
@@ -190,29 +193,6 @@ typedef struct
 #endif
 } off_chain;
 
-/* The following struct is built into a separate list for each transaction
-   because it is not thrown away if a transaction restarts. The list keeps
-   growing so we can lock down all the necessary regions in the correct order
-   in case one attempt doesn't get very far while later attempts get further.
-   Items will be put on the list sorted in unique_id order so that they will always
-   be grab-crit'd in the same order thus avoiding deadlocks. */
-
-/* The structure backup_region_list defined in mupipbckup.h needs to have its first four fields
-   identical to the first three fields in this structure */
-typedef struct tp_region_struct
-{
-	struct	tp_region_struct *fPtr;		/* Next in list */
-	gd_region	*reg;			/* Region pointer. Note that it is not necessarily unique since multiple
-						 * regions could point to the same physical file (with all but one of them
-						 * having reg->was_open set to TRUE.and hence have the same tp_region structure.
-						 */
-	union					/* we will either use file_id or index */
-	{
-		gd_id		file_id;
-		int4		fid_index;	/* copy of csa->fid_index for this region */
-	} file;
-} tp_region;
-
 #ifdef	DEBUG
 /* Macro to check that the tp_reg_list linked list is sorted properly on the file-id */
 #define	DBG_CHECK_TP_REG_LIST_SORTING(REGLIST)						\
@@ -225,8 +205,8 @@ typedef struct tp_region_struct
 	{										\
 		if (tr->reg->open)							\
 		{									\
-			assert(prev_index < tr->file.fid_index);			\
-			DEBUG_ONLY(prev_index = tr->file.fid_index);			\
+			assert(prev_index < tr->fid_index);				\
+			prev_index = tr->fid_index;					\
 		}									\
 	}										\
 }
@@ -400,13 +380,13 @@ typedef struct trans_restart_hist_struct
 
 # define TRACE_TRANS_RESTART(RETRY_CODE)								\
 {													\
-	GBLREF	jnlpool_addrs	jnlpool;								\
-	GBLREF	unsigned int	t_tries;								\
-	GBLREF	unsigned int	dollar_tlevel;								\
-	GBLREF	sgmnt_addrs	*cs_addrs;								\
+	GBLREF	jnlpool_addrs_ptr_t	jnlpool;							\
+	GBLREF	unsigned int		t_tries;							\
+	GBLREF	unsigned int		dollar_tlevel;							\
+	GBLREF	sgmnt_addrs		*cs_addrs;							\
 													\
-	uint4			curidx;									\
-	trans_restart_hist_t	*this_restart_hist;							\
+	uint4				curidx;								\
+	trans_restart_hist_t		*this_restart_hist;						\
 													\
 	assert(dollar_tlevel || (NULL != cs_addrs));							\
 	curidx = ++(TREF(trans_restart_hist_index));							\
@@ -417,8 +397,8 @@ typedef struct trans_restart_hist_struct
 	this_restart_hist->dollar_tlevel = dollar_tlevel;						\
 	this_restart_hist->retry_code = RETRY_CODE;							\
 	this_restart_hist->call_from = (caddr_t)caller_id();						\
-	if (NULL != jnlpool.jnlpool_ctl)								\
-		this_restart_hist->seq_or_tn.jnl_seqno = jnlpool.jnlpool_ctl->jnl_seqno;		\
+	if ((NULL != jnlpool) && (NULL != jnlpool->jnlpool_ctl))						\
+		this_restart_hist->seq_or_tn.jnl_seqno = jnlpool->jnlpool_ctl->jnl_seqno;		\
 	else												\
 		this_restart_hist->seq_or_tn.curr_tn = (NULL != cs_addrs) ? cs_addrs->ti->curr_tn : 0;	\
 	this_restart_hist->csa = dollar_tlevel ? NULL : cs_addrs;					\
@@ -426,22 +406,6 @@ typedef struct trans_restart_hist_struct
 #else
 # define TRACE_TRANS_RESTART(RETRY_CODE)
 #endif	/* DEBUG */
-
-#define TP_TRACE_HIST(X, Y) 										\
-{													\
-	GBLREF	gd_region	*tp_fail_hist_reg[];							\
-	GBLREF	gv_namehead	*tp_fail_hist[];							\
-	GBLREF	block_id	t_fail_hist_blk[];							\
-	DCL_THREADGBL_ACCESS;										\
-													\
-	SETUP_THREADGBL_ACCESS;										\
-	if (TREF(tprestart_syslog_delta))								\
-	{												\
-		tp_fail_hist_reg[t_tries] = gv_cur_region;						\
-		t_fail_hist_blk[t_tries] = ((block_id)X); 						\
-		tp_fail_hist[t_tries] = (gv_namehead *)(((int)X & ~(-BLKS_PER_LMAP)) ? Y : NULL);	\
-	}												\
-}
 
 #define	ASSERT_IS_WITHIN_TP_HIST_ARRAY_BOUNDS(FIRST_TP_SRCH_STATUS, SGM_INFO_PTR)	\
 {											\
@@ -832,8 +796,6 @@ typedef enum
 # endif	/* #ifdef DEBUG */
 #endif	/* #ifdef GTM_TRIGGER */
 
-#define INVOKE_RESTART	rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_TPRETRY);
-
 /* the following macros T_BEGIN_READ_NONTP_OR_TP and T_BEGIN_SETORKILL_NONTP_OR_TP are similar except for one difference
  * which is that for the SETORKILL case, sgm_info_ptr->update_trans needs to be set. They need to be maintained
  * in parallel always. The reason for choosing this duplication is because it saves us an if check which would have
@@ -939,31 +901,33 @@ GBLREF	unsigned int	t_tries;
 	}															\
 }
 
-#define SAVE_REGION_INFO(SAVE_KEY, SAVE_TARGET, SAVE_CUR_REG, SAVE_SI_PTR)	\
-MBSTART {									\
-	SAVE_TARGET = gv_target;						\
-	SAVE_CUR_REG = gv_cur_region;						\
-	SAVE_SI_PTR = sgm_info_ptr;						\
-	assert(NULL != gv_currkey);						\
-	assert((SIZEOF(gv_key) + gv_currkey->end) <= SIZEOF(SAVE_KEY));		\
-	memcpy(&SAVE_KEY[0], gv_currkey, SIZEOF(gv_key) + gv_currkey->end);	\
+#define SAVE_REGION_INFO(SAVE_KEY, SAVE_TARGET, SAVE_CUR_REG, SAVE_SI_PTR, SAVE_JNLPOOL)	\
+MBSTART {											\
+	SAVE_TARGET = gv_target;								\
+	SAVE_CUR_REG = gv_cur_region;								\
+	SAVE_SI_PTR = sgm_info_ptr;								\
+	SAVE_JNLPOOL = jnlpool;									\
+	assert(NULL != gv_currkey);								\
+	assert((SIZEOF(gv_key) + gv_currkey->end) <= SIZEOF(SAVE_KEY));				\
+	memcpy(&SAVE_KEY[0], gv_currkey, SIZEOF(gv_key) + gv_currkey->end);			\
 } MBEND
-#define RESTORE_REGION_INFO(SAVE_KEY, SAVE_TARGET, SAVE_CUR_REG, SAVE_SI_PTR)	\
-MBSTART {									\
-	gv_target = SAVE_TARGET;						\
-	sgm_info_ptr = SAVE_SI_PTR;						\
-	/* check no keysize expansion occurred inside gvcst_root_search */	\
-	assert(gv_currkey->top == SAVE_KEY[0].top);				\
-	memcpy(gv_currkey, &SAVE_KEY[0], SIZEOF(gv_key) + SAVE_KEY[0].end);	\
-	if (NULL != SAVE_CUR_REG)						\
-	{									\
-		TP_CHANGE_REG_IF_NEEDED(SAVE_CUR_REG);				\
-	} else									\
-	{									\
-		gv_cur_region = NULL;						\
-		cs_data = NULL;							\
-		cs_addrs = NULL;						\
-	}									\
+#define RESTORE_REGION_INFO(SAVE_KEY, SAVE_TARGET, SAVE_CUR_REG, SAVE_SI_PTR, SAVE_JNLPOOL)	\
+MBSTART {											\
+	gv_target = SAVE_TARGET;								\
+	sgm_info_ptr = SAVE_SI_PTR;								\
+	/* check no keysize expansion occurred inside gvcst_root_search */			\
+	assert(gv_currkey->top == SAVE_KEY[0].top);						\
+	memcpy(gv_currkey, &SAVE_KEY[0], SIZEOF(gv_key) + SAVE_KEY[0].end);			\
+	if (NULL != SAVE_CUR_REG)								\
+	{											\
+		TP_CHANGE_REG_IF_NEEDED(SAVE_CUR_REG);						\
+	} else											\
+	{											\
+		gv_cur_region = NULL;								\
+		cs_data = NULL;									\
+		cs_addrs = NULL;								\
+	}											\
+	jnlpool = SAVE_JNLPOOL;									\
 } MBEND
 
 /* Any retry transition where the destination state is the 3rd retry, we don't want to release crit, i.e. for 2nd to 3rd retry
@@ -981,7 +945,6 @@ void tp_start_timer_dummy(int4 timeout_seconds);
 void tp_clear_timeout_dummy(void);
 void tp_timeout_action_dummy(void);
 
-tp_region	*insert_region(gd_region *reg, tp_region **reg_list, tp_region **reg_free_list, int4 size);
 boolean_t	tp_tend(void);
 boolean_t	tp_crit_all_regions(void);
 

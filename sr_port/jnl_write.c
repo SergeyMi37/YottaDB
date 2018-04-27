@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2003-2017 Fidelity National Information	*
+ * Copyright (c) 2003-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  *	This source code contains the intellectual property	*
@@ -49,6 +49,7 @@
 #endif
 
 GBLREF	uint4			process_id;
+GBLREF	jnlpool_addrs_ptr_t	jnlpool;
 GBLREF	boolean_t		is_src_server;
 GBLREF	boolean_t		in_jnl_file_autoswitch;
 GBLREF	uint4			dollar_tlevel;
@@ -62,7 +63,6 @@ STATICDEF	int		jnl_write_recursion_depth;
 
 error_def(ERR_JNLEXTEND);
 error_def(ERR_JNLWRTNOWWRTR);
-error_def(ERR_JNLWRTDEFER);
 
 #define	JNL_PUTSTR(lcl_free, lcl_buff, src, len, lcl_size)			\
 {										\

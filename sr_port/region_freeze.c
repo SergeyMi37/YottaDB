@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  *	This source code contains the intellectual property	*
@@ -41,7 +41,7 @@
 #include "gtmio.h"
 
 #ifdef DEBUG_FREEZE
-GBLREF	bool		caller_id_flag;
+GBLREF	boolean_t	caller_id_flag;
 #endif
 GBLREF	bool		in_mupip_freeze;
 GBLREF	uint4		process_id;
@@ -49,9 +49,13 @@ GBLREF	boolean_t	debug_mupip;
 GBLREF	jnl_gbls_t	jgbl;
 GBLREF	gd_region	*gv_cur_region;
 
+STATICDEF	int4			rf_epoch_interval_sav;
+STATICDEF	sgmnt_data_ptr_t	rf_csd_sav;
+
 # define FREEZE_ID	((0 == user_id) ? FROZEN_BY_ROOT : user_id)
 # define FREEZE_MATCH	process_id
 # define OWNERSHIP	(in_mupip_freeze ? (csd->freeze == freeze_id) : (csd->image_count == FREEZE_MATCH))
+# define NEG_STR(VAL)	((VAL) ? "" : "NO")
 
 #ifdef DEBUG_FREEZE
 #define SEND_FREEZEID(STATE, CSA)							\
@@ -66,7 +70,10 @@ GBLREF	gd_region	*gv_cur_region;
 error_def(ERR_FREEZEID);
 #endif
 
-error_def(ERR_DBFILERR);
+error_def(ERR_DBFREEZEON);
+error_def(ERR_DBFREEZEOFF);
+
+CONDITION_HANDLER(region_freeze_jnl_switch_ch);
 
 freeze_status	region_freeze(gd_region *region, boolean_t freeze, boolean_t override, boolean_t wait_for_kip,
 				uint4 online, boolean_t flush_sync)
@@ -92,11 +99,10 @@ freeze_status	region_freeze_main(gd_region *region, boolean_t freeze, boolean_t 
 	unix_db_info    	*udi;
 	uint4			standalone;
 	uint4			jnl_status;
-	int4			epoch_interval_sav;
 	int			dummy_errno, save_errno;
 	uint4			was_online;
 	char			time_str[CTIME_BEFORE_NL + 2];       /* for GET_CUR_TIME macro */
-	boolean_t		cleanup_autorelease, jnl_switch_done, was_crit;
+	boolean_t		cleanup_autorelease, jnl_switch_done, was_crit, jnl_switch_err;
 	freeze_status		rval;
 	unsigned int		lcnt;
 
@@ -205,12 +211,16 @@ freeze_status	region_freeze_main(gd_region *region, boolean_t freeze, boolean_t 
 				 * be copied to jfh->epoch_interval, and we restore it below. The restored value will
 				 * then appear in the next journal file to which we will switch on the unfreeze.
 				 */
-				epoch_interval_sav = csd->epoch_interval;
+				rf_epoch_interval_sav = csd->epoch_interval;
+				rf_csd_sav = csd;
+				ESTABLISH_NORET(region_freeze_jnl_switch_ch, jnl_switch_err);
+				assert(!jnl_switch_err);
 				csd->epoch_interval = MIN(jgbl.gbl_jrec_time, INT_MAX) - MAX_EPOCH_DELAY;
 				jnl_switch_done = TRUE;
 				if (EXIT_ERR == SWITCH_JNL_FILE(jpc))
 					rval = REG_JNL_SWITCH_ERROR;
-				csd->epoch_interval = epoch_interval_sav;
+				csd->epoch_interval = rf_epoch_interval_sav;
+				REVERT;
 			} else
 				rval = REG_JNL_OPEN_ERROR;
 		}
@@ -226,7 +236,7 @@ freeze_status	region_freeze_main(gd_region *region, boolean_t freeze, boolean_t 
 		csd->freeze = freeze_id;		/* the order of this line and the next is important */
 		csd->image_count = FREEZE_MATCH;
 		csa->freeze = TRUE;
-		csd->freeze_online = online;
+		cnl->freeze_online = online;
 		DEBUG_ONLY(cnl->freezer_waited_for_kip = wait_for_kip;)
 		SIGNAL_WRITERS_TO_RESUME(cnl);
 		DECR_INHIBIT_KILLS(cnl);
@@ -244,6 +254,8 @@ freeze_status	region_freeze_main(gd_region *region, boolean_t freeze, boolean_t 
 		SEND_FREEZEID("FREEZE", csa);
 #		endif
 		rel_latch(&cnl->freeze_latch);
+		send_msg_csa(CSA_ARG(csa) VARLSTCNT(7) ERR_DBFREEZEON, 5, REG_LEN_STR(region), NEG_STR(override), NEG_STR(online),
+								NEG_STR(online & CHILLED_AUTORELEASE_MASK));
 		return rval;
 	}
 	/* !freeze */
@@ -252,7 +264,7 @@ freeze_status	region_freeze_main(gd_region *region, boolean_t freeze, boolean_t 
 	/* If there is no freeze, but there is a freeze_online, then there was an autorelease, which needs to be cleaned up
 	 * by the normal unfreeze procedure. However, we only do it in MUPIP FREEZE -OFF to ensure that the user gets a warning.
 	 */
-	cleanup_autorelease = ((0 == csd->freeze) && CHILLED_AUTORELEASE(csd) && in_mupip_freeze);
+	cleanup_autorelease = ((0 == csd->freeze) && CHILLED_AUTORELEASE(csa) && in_mupip_freeze);
 	if ((0 == csd->freeze) && !cleanup_autorelease)
 	{
 		rel_latch(&cnl->freeze_latch);
@@ -260,10 +272,10 @@ freeze_status	region_freeze_main(gd_region *region, boolean_t freeze, boolean_t 
 	}
 	if (override || OWNERSHIP || cleanup_autorelease)
 	{
-		was_online = csd->freeze_online;
+		was_online = cnl->freeze_online;
 		csd->image_count = 0;		/* the order of this line and the next is important */
 		csd->freeze = 0;
-		csd->freeze_online = FALSE;
+		cnl->freeze_online = FALSE;
 		csa->freeze = FALSE;
 		rel_latch(&cnl->freeze_latch);
 #		ifdef DEBUG_FREEZE
@@ -278,6 +290,8 @@ freeze_status	region_freeze_main(gd_region *region, boolean_t freeze, boolean_t 
 		{
 			csa->needs_post_freeze_flushsync = TRUE;
 		}
+		send_msg_csa(CSA_ARG(csa) VARLSTCNT(6) ERR_DBFREEZEOFF, 4, REG_LEN_STR(region), NEG_STR(override),
+								NEG_STR(cleanup_autorelease));
 		return rval;
 	} else
 		rel_latch(&cnl->freeze_latch);
@@ -334,4 +348,11 @@ freeze_status region_freeze_post(gd_region *region)
 		csa->needs_post_freeze_flushsync = FALSE;
 	}
 	return rval;
+}
+
+CONDITION_HANDLER(region_freeze_jnl_switch_ch)
+{
+	START_CH(TRUE);
+	rf_csd_sav->epoch_interval = rf_epoch_interval_sav;
+	NEXTCH;
 }

@@ -1,8 +1,10 @@
-
 /****************************************************************
  *								*
- * Copyright (c) 2005-2017 Fidelity National Information	*
+ * Copyright (c) 2005-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -11,8 +13,8 @@
  *								*
  ****************************************************************/
 
-#ifndef __WBOX_TEST_INIT_
-#define __WBOX_TEST_INIT_
+#ifndef WBOX_TEST_INIT
+#define WBOX_TEST_INIT
 
 /* The standalone routine gtmsecshr_wrapper needs these to be GBLDEFs so create a scheme to force that. If WBOX_GBLDEF is
  * defined, create these as GBLDEFs instead of GBLREFs.
@@ -111,7 +113,7 @@ typedef enum {
 	/* Begin ANTIFREEZE related white box test cases */
 	WBTEST_ANTIFREEZE_JNLCLOSE,		/* 69 :  */
 	WBTEST_ANTIFREEZE_DBBMLCORRUPT,		/* 70 :  */
-	WBTEST_EXPECT_CRYPTOPFAILED,		/* 71 :  set when expecting CRYPTOPFAILED so we don't take a core*/
+	WBTEST_UNUSED71,			/* 71 :  UNUSED - GTM-8919 removed the only place to test this */
 	WBTEST_ANTIFREEZE_DBFSYNCERR,		/* 72 :	 */
 	WBTEST_ANTIFREEZE_GVDATAFAIL,		/* 73 :  */
 	WBTEST_ANTIFREEZE_GVGETFAIL,		/* 74 :  */
@@ -146,7 +148,7 @@ typedef enum {
 	WBTEST_HOLD_GTMSOURCE_SRV_LATCH,	/* 99 : Hold the source server latch until rollback process issues a SIGCONT */
 	WBTEST_KILL_ROLLBACK,			/* 100 : Kill in the middle of rollback */
 	WBTEST_INFO_HUB_SEND_ZMESS,		/* 101 : Print messages triggered via ZMESSAGE to the syslog */
-	WBTEST_SKIP_CORE_FOR_MEMORY_ERROR,	/* 102 : Do not generate core file in case of GTM-E-MEMORY fatal error */
+	WBTEST_SKIP_CORE_FOR_MEMORY_ERROR,	/* 102 : Do not generate core file in case of YDB-E-MEMORY fatal error */
 	WBTEST_EXTFILTER_INDUCE_ERROR,		/* 103 : Do not assert in case of external filter error (test induces that) */
 	WBTEST_BADEXEC_UPDATE_PROCESS,		/* 104 : Prevent the update process from EXECing */
 	WBTEST_BADEXEC_HELPER_PROCESS,		/* 105 : Prevent the helper processes from EXECing */
@@ -158,8 +160,8 @@ typedef enum {
 	WBTEST_BADDUP_PIPE_STDERR1,		/* 111 : Prevent dup2() of stderr in forked piped process */
 	WBTEST_BADDUP_PIPE_STDERR2,		/* 112 : Prevent second dup2() of stderr in forked piped process */
 	WBTEST_BADEXEC_PIPE_PROCESS,		/* 113 : Prevent the SECSHR process from being EXEC'ed */
-	WBTEST_MAXGTMDIST_UPDATE_PROCESS,	/* 114 : Make gtm_dist too big for update process */
-	WBTEST_MAXGTMDIST_HELPER_PROCESS,	/* 115 : Make gtm_dist too big for helper process */
+	WBTEST_MAXYDBDIST_UPDATE_PROCESS,	/* 114 : Make ydb_dist too big for update process */
+	WBTEST_MAXYDBDIST_HELPER_PROCESS,	/* 115 : Make ydb_dist too big for helper process */
 	WBTEST_MAX_TRIGNAME_SEQ_NUM,		/* 116 : Induce "too many triggers" error sooner (MAX_TRIGNAME_SEQ_NUM) */
 	WBTEST_RELINKCTL_MAX_ENTRIES,		/* 117 : Bring down the maximum number of relink control entries in one file */
 	WBTEST_FAKE_BIG_KEY_COUNT,		/* 118 : Fake large increase in mupip load key count to show it does not overflow */
@@ -180,7 +182,11 @@ typedef enum {
 	WBTEST_LVMON_PSEUDO_FAIL,		/* 133 : Create condition to cause lvmonitor to fail a comparison and report it */
 	WBTEST_REPLINSTSTNDALN,			/* 134 : Expected case of REPLINSTSTNDALN error */
 	WBTEST_FORCE_SHMPLRECOV,		/* 135 : Always invoke SHMPLRECOV abandoned block processing */
-	WBTEST_GETPWUID_CHECK_OVERWRITE		/* 136 : Check for getpwuid_struct variable overwrite condition */
+	WBTEST_GETPWUID_CHECK_OVERWRITE,	/* 136 : Check for getpwuid_struct variable overwrite condition */
+	WBTEST_NO_REPLINSTMULTI_FAIL,		/* 137 : Unless specified tests should not fail with REPLMULTINSTUPDATE */
+	WBTEST_DOLLARDEVICE_BUFFER,		/* 138 : Force larger error messages for $device to exceed DD_BUFLEN */
+	WBTEST_LOWERED_JNLEPOCH,		/* 139 : Force larger error messages for $device to exceed DD_BUFLEN */
+	WBTEST_SIGTERM_IN_JOB_CHILD		/* 140 : Generate Sigterm  by killing ourselves before the child fork */
 	/* Note 1: when adding new white box test cases, please make use of WBTEST_ENABLED and WBTEST_ASSIGN_ONLY (defined below)
 	 * whenever applicable
 	 * Note 2: when adding a new white box test case, see if an existing WBTEST_UNUSED* slot can be leveraged.

@@ -1,6 +1,10 @@
 /****************************************************************
  *								*
- *	Copyright 2001, 2012 Fidelity Information Services, Inc	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -21,7 +25,7 @@
 
 LITREF octabstruct	oc_tab[];	/* op-code table */
 GBLREF triple		t_orig;		/* head of triples */
-GBLREF uint4		gtmDebugLevel;
+GBLREF uint4		ydbDebugLevel;
 
 #define IND_NOT_DEFINED ((unsigned char)-2)
 #define JOPT_NO_OPT 1
@@ -139,7 +143,7 @@ LITDEF readonly jump_opto_struct jump_opto_table[NUM_JO_TBL_ELE] =
 			 JOPT_NO_OPT	/* RET */
 		}
 	},
-	{	OC_HALT,	/* opcode */
+	{	OC_ZHALT,	/* opcode */
 		9,		/* index */
 		{
 			 JOPT_NO_OPT,	/* OC_JMP */		 JOPT_NO_OPT,	/* OC_JMPTSET */
@@ -202,7 +206,7 @@ void jmp_opto(void)
 	/* If debug and compiler debugging is enabled, run through the triples again to show where we are jus
 	 * before we modify them.
 	 */
-	if (gtmDebugLevel & GDL_DebugCompiler)
+	if (ydbDebugLevel & GDL_DebugCompiler)
 	{
 		PRINTF(" \n\n\n\n************************************ Begin jmp_opto scan *****************************\n");
 	}
@@ -320,7 +324,7 @@ void jmp_opto(void)
 							i = NO_ENTRY;
 						break;
 					default:
-						GTMASSERT;
+						assertpro(FALSE && p[i]);
 						break;
 				} /* switch */
 			} /* while  */
@@ -349,7 +353,7 @@ void jmp_opto(void)
 	/* If debug and compiler debugging is enabled, run through the triples again to show what we
 	 * have done to them..
 	 */
-	if (gtmDebugLevel & GDL_DebugCompiler)
+	if (ydbDebugLevel & GDL_DebugCompiler)
 	{
 		dqloop(&t_orig, exorder, ct)
 		{

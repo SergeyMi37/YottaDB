@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -71,18 +71,15 @@ GBLREF spdesc		stringpool;
 GBLREF io_pair		io_curr_device;
 GBLREF io_log_name	*io_root_log_name;
 GBLREF io_log_name	*dollar_principal;
-GBLREF mval		dollar_ztrap;
 GBLREF mval		dollar_zgbldir;
 GBLREF mval		dollar_job;
 GBLREF uint4		dollar_zjob;
 GBLREF mval		dollar_zstatus;
-GBLREF mval		dollar_zstep;
 GBLREF mval		dollar_zsource;
 GBLREF int4		dollar_zsystem;
 GBLREF int4		dollar_zeditor;
 GBLREF uint4		dollar_tlevel;
 GBLREF uint4		dollar_trestart;
-GBLREF mval		dollar_etrap;
 GBLREF mval		dollar_zerror;
 GBLREF mval		dollar_zyerror;
 GBLREF mval		dollar_system;
@@ -126,6 +123,8 @@ error_def(ERR_ZDIROUTOFSYNC);
 LITREF mval		literal_zero, literal_one, literal_null;
 LITREF char		gtm_release_name[];
 LITREF int4		gtm_release_name_len;
+LITREF char		ydb_release_stamp[];
+LITREF int4		ydb_release_stamp_len;
 LITREF char		ydb_release_name[];
 LITREF int4		ydb_release_name_len;
 
@@ -351,7 +350,7 @@ void op_svget(int varnum, mval *v)
 			s2pool(&(v->str));
 			break;
 		case SV_ZSTEP:
-			*v = dollar_zstep;
+			*v = TREF(dollar_zstep);
 			break;
 		case SV_ZMODE:
 			*v = TREF(dollar_zmode);
@@ -372,9 +371,9 @@ void op_svget(int varnum, mval *v)
 			break;
 		case SV_ZROUTINES:
 			/* If we are in the process of exiting and come here (e.g. to do ZSHOW dump as part of creating
-			 * the fatal zshow dump file due to a fatal GTM-F-MEMORY error), do not invoke zro_init() as that
+			 * the fatal zshow dump file due to a fatal YDB-F-MEMORY error), do not invoke zro_init() as that
 			 * might in turn require more memory (e.g. attach to relinkctl shared memory etc.) and we dont
-			 * want to get a nested GTM-F-MEMORY error.
+			 * want to get a nested YDB-F-MEMORY error.
 			 */
 			if (!TREF(zro_root) && !process_exiting)
 				zro_init();
@@ -392,7 +391,7 @@ void op_svget(int varnum, mval *v)
 			break;
 		case SV_ZTRAP:
 			v->mvtype = MV_STR;
-			v->str = dollar_ztrap.str;
+			v->str = (TREF(dollar_ztrap)).str;
 			assert(!v->str.len || !ztrap_explicit_null);
 			s2pool(&(v->str));
 			break;
@@ -401,6 +400,11 @@ void op_svget(int varnum, mval *v)
 			break;
 		case SV_KEY:
 			get_dlr_key(v);
+			break;
+		case SV_ZRELDATE:
+			v->mvtype = MV_STR;
+			v->str.addr = (char *)ydb_release_stamp;
+			v->str.len = ydb_release_stamp_len;
 			break;
 		case SV_ZVERSION:
 			v->mvtype = MV_STR;
@@ -435,7 +439,7 @@ void op_svget(int varnum, mval *v)
 			break;
 		case SV_ETRAP:
 			v->mvtype = MV_STR;
-			v->str = dollar_etrap.str;
+			v->str = (TREF(dollar_etrap)).str;
 			assert(!v->str.len || !ztrap_explicit_null);
 			s2pool(&(v->str));
 			break;
@@ -620,6 +624,10 @@ void op_svget(int varnum, mval *v)
 #			endif
 		case SV_ZKEY:
 			get_dlr_zkey(v);
+			break;
+		case SV_ZSTRPLLIM:
+			count = TREF(gtm_strpllim);
+			MV_FORCE_MVAL(v, count);
 			break;
 		default:
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_INVSVN);

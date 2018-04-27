@@ -3,6 +3,9 @@
  * Copyright (c) 2014-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -98,10 +101,10 @@ open_relinkctl_sgm *relinkctl_attach(mstr *obj_container_name, mstr *objpath, in
 	open_relinkctl_sgm 	*linkctl, new_link, *new_link_ptr;
 	int			i, len, save_errno;
 	mstr			objdir;
-	char			pathin[GTM_PATH_MAX], resolvedpath[GTM_PATH_MAX];	/* Includes null terminator char */
+	char			pathin[YDB_PATH_MAX], resolvedpath[YDB_PATH_MAX];	/* Includes null terminator char */
 	char			*pathptr;
 	boolean_t		obj_dir_found;
-	char			relinkctl_path[GTM_PATH_MAX], *ptr;
+	char			relinkctl_path[YDB_PATH_MAX], *ptr;
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
@@ -112,7 +115,7 @@ open_relinkctl_sgm *relinkctl_attach(mstr *obj_container_name, mstr *objpath, in
 	 *    2. Remove trailing slash(es) from the object directory name.
 	 */
 	obj_dir_found = TRUE;				/* Assume we will find the path */
-	assert(GTM_PATH_MAX > obj_container_name->len);	/* Should have been checked by our caller */
+	assert(YDB_PATH_MAX > obj_container_name->len);	/* Should have been checked by our caller */
 	memcpy(pathin, obj_container_name->addr, obj_container_name->len);
 	pathin[obj_container_name->len] = '\0';		/* Needs null termination for realpath call */
 	pathptr = realpath(pathin, resolvedpath);
@@ -385,7 +388,7 @@ int relinkctl_open(open_relinkctl_sgm *linkctl, boolean_t object_dir_missing)
 					relinkctl_unlock_exclu(linkctl);
 					relinkctl_unmap(linkctl);
 					SNPRINTF(errstr, SIZEOF(errstr), "shmat() failed for shmid=%d shmsize=%llu [0x%llx]",
-						shmid, shm_size, shm_size);
+						shmid, (unsigned long long)shm_size, (unsigned long long)shm_size);
 					if (!shm_removed)
 						ISSUE_RELINKCTLERR_SYSCALL(&linkctl->zro_entry_name, errstr, save_errno);
 					else
@@ -420,7 +423,8 @@ int relinkctl_open(open_relinkctl_sgm *linkctl, boolean_t object_dir_missing)
 				relinkctl_delete(linkctl);
 				relinkctl_unlock_exclu(linkctl);
 				relinkctl_unmap(linkctl);
-				SNPRINTF(errstr, SIZEOF(errstr), "shmget() failed for shmsize=%llu [0x%llx]", shm_size, shm_size);
+				SNPRINTF(errstr, SIZEOF(errstr), "shmget() failed for shmsize=%llu [0x%llx]",
+							(unsigned long long)shm_size, (unsigned long long)shm_size);
 				ISSUE_RELINKCTLERR_SYSCALL(&linkctl->zro_entry_name, errstr, save_errno);
 			}
 			if (-1 == shmctl(shmid, IPC_STAT, &shmstat))
@@ -431,7 +435,7 @@ int relinkctl_open(open_relinkctl_sgm *linkctl, boolean_t object_dir_missing)
 				relinkctl_unmap(linkctl);
 				shm_rmid(shmid);	/* if error removing shmid we created, just move on */
 				SNPRINTF(errstr, SIZEOF(errstr), "shmctl(IPC_STAT) failed for shmid=%d shmsize=%llu [0x%llx]",
-					shmid, shm_size, shm_size);
+					shmid, (unsigned long long)shm_size, (unsigned long long)shm_size);
 				ISSUE_RELINKCTLERR_SYSCALL(&linkctl->zro_entry_name, errstr, save_errno);
 			}
 			assert(obtained_perms);
@@ -460,7 +464,7 @@ int relinkctl_open(open_relinkctl_sgm *linkctl, boolean_t object_dir_missing)
 				relinkctl_unmap(linkctl);
 				shm_rmid(shmid);	/* if error removing shmid we created, just move on */
 				SNPRINTF(errstr, SIZEOF(errstr), "shmctl(IPC_SET) failed for shmid=%d shmsize=%llu [0x%llx]",
-					shmid, shm_size, shm_size);
+					shmid, (unsigned long long)shm_size, (unsigned long long)shm_size);
 				ISSUE_RELINKCTLERR_SYSCALL(&linkctl->zro_entry_name, errstr, save_errno);
 			}
 			/* Initialize shared memory header */
@@ -472,7 +476,7 @@ int relinkctl_open(open_relinkctl_sgm *linkctl, boolean_t object_dir_missing)
 				relinkctl_unmap(linkctl);
 				shm_rmid(shmid);	/* if error removing shmid we created, just move on */
 				SNPRINTF(errstr, SIZEOF(errstr), "shmat() failed for shmid=%d shmsize=%llu [0x%llx]",
-					shmid, shm_size, shm_size);
+					shmid, (unsigned long long)shm_size, (unsigned long long)shm_size);
 				ISSUE_RELINKCTLERR_SYSCALL(&linkctl->zro_entry_name, errstr, save_errno);
 			}
 			hdr->relinkctl_shmid = shmid;
@@ -541,11 +545,23 @@ int relinkctl_open(open_relinkctl_sgm *linkctl, boolean_t object_dir_missing)
 
 #ifdef AUTORELINK_SUPPORTED
 /* This is called from processes that already have "linkctl" attached but have not done an increment of "linkctl->hdr->nattached".
- * Example is a jobbed off process in ojstartchild.c
+ * Example is a jobbed off process in "ojstartchild".
+ * The input parameter "rtnobj_refcnt_incr_cnt" indicates whether the refcnt of all routines currently linked into this process
+ * in relinkctl shared memory needs to be incremented too. This is used for example by the caller "ydb_child_init".
+ * Note: If rtnobj_refcnt_incr_cnt is TRUE, this function currently only goes through the "rtn_names" array to check
+ * routines currently linked into this process. It does not go through the current M-stack (like "relinkctl_rundown" does).
+ * This is okay since the only caller of this codepath is "ydb_child_init" which is a call done from a C program and so the
+ * M stack at that point does not matter to the purely C function calls that will later happen while in the caller C program.
  */
-void relinkctl_incr_nattached(void)
+void relinkctl_incr_nattached(boolean_t rtnobj_refcnt_incr_cnt)
 {
-	open_relinkctl_sgm *linkctl;
+	open_relinkctl_sgm	*linkctl;
+	rtn_tabent		*rtab;
+	rhdtyp			*rhead;
+	sm_uc_ptr_t		objBuff;
+	rtnobj_hdr_t		*rtnobj;
+	zro_validation_entry	*zhent;
+	relinkrec_t		*relinkrec;
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
@@ -558,6 +574,42 @@ void relinkctl_incr_nattached(void)
 		linkctl->hdr->nattached++;
 		relinkctl_unlock_exclu(linkctl);
 	}
+	if (rtnobj_refcnt_incr_cnt)
+	{
+		/* The below for loop statement is similar to that in "relinkctl_rundown" */
+		for (rtab = rtn_names_end; rtab > rtn_names; rtab--, rtn_names_end = rtab)
+		{
+			rhead = rtab->rt_adr;
+			if (rhead->shared_object)
+			{	/* The below code is similar to that in "rtnobj_shm_free" */
+				assert(NULL != rhead->shared_ptext_adr);
+				if (NULL == rhead->shared_ptext_adr)
+					continue;	/* in pro, be safe */
+				assert(rhead->shared_ptext_adr == rhead->ptext_adr);
+				objBuff = rhead->shared_ptext_adr - SIZEOF(rhdtyp);
+				rtnobj = (rtnobj_hdr_t *)(objBuff - OFFSETOF(rtnobj_hdr_t, userStorage));
+				assert(STATE_ALLOCATED == rtnobj->state);
+				assert(rtnobj->initialized);
+				assert(0 < rtnobj->refcnt);
+				assert(NULL != rhead->zhist);
+				zhent = rhead->zhist->end - 1;
+				relinkrec = zhent->relinkrec;
+				/* Before incrementing refcnt, get a lock on the corresponding relinkctl file
+				 * (see "rtnobj_shm_malloc").
+				 */
+				if (!grab_latch(&relinkrec->rtnobj_latch, RLNKREC_LATCH_TIMEOUT_SEC))
+				{
+					linkctl = zhent->relinkctl_bkptr;
+					assert(FALSE);
+					rts_error_csa(CSA_ARG(NULL) VARLSTCNT(5)
+						ERR_RLNKRECLATCH, 3, relinkrec->rtnname_fixed.c,
+						RTS_ERROR_MSTR(&linkctl->zro_entry_name));
+				}
+				rtnobj->refcnt++;
+				rel_latch(&relinkrec->rtnobj_latch);
+			}
+		}
+	}
 }
 
 /* Routine to generate unique key for a $ZROUTINES entry name used to create relinkctl file for that entry in the directory
@@ -569,10 +621,10 @@ void relinkctl_incr_nattached(void)
  *
  * Parameters:
  *
- *   key            - Generated as $gtm_linktmpdir/gtm-relinkctl-<hash>. Buffer should be GTM_PATH_MAX bytes (output).
+ *   key            - Generated as $gtm_linktmpdir/gtm-relinkctl-<hash>. Buffer should be YDB_PATH_MAX bytes (output).
  *   zro_entry_name - Address of mstr containing the fully expanded zroutines entry directory name.
  */
-int relinkctl_get_key(char key[GTM_PATH_MAX], mstr *zro_entry_name)
+int relinkctl_get_key(char key[YDB_PATH_MAX], mstr *zro_entry_name)
 {
 	gtm_uint16	hash;
 	unsigned char	hexstr[33];
@@ -584,8 +636,8 @@ int relinkctl_get_key(char key[GTM_PATH_MAX], mstr *zro_entry_name)
 	gtmmrhash_128(zro_entry_name->addr, zro_entry_name->len, 0, &hash);
 	gtmmrhash_128_hex(&hash, hexstr);
 	hexstr[32] = '\0';
-	/* If the cumulative path to the relinkctl file exceeds GTM_PATH_MAX, it will be inaccessible, so no point continuing. */
-	if (GTM_PATH_MAX < (TREF(gtm_linktmpdir)).len + SLASH_GTM_RELINKCTL_LEN + SIZEOF(hexstr))
+	/* If the cumulative path to the relinkctl file exceeds YDB_PATH_MAX, it will be inaccessible, so no point continuing. */
+	if (YDB_PATH_MAX < (TREF(gtm_linktmpdir)).len + SLASH_GTM_RELINKCTL_LEN + SIZEOF(hexstr))
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(8) ERR_RELINKCTLERR, 2, RTS_ERROR_MSTR(zro_entry_name),
 				ERR_TEXT, 2, RTS_ERROR_LITERAL("Path to the relinkctl file is too long"));
 	key_ptr = key;
@@ -596,7 +648,7 @@ int relinkctl_get_key(char key[GTM_PATH_MAX], mstr *zro_entry_name)
 	STRNCPY_STR(key_ptr, hexstr, 33); /* NULL-terminate the string. */
 	key_ptr += 32;
 	keylen = (key_ptr - key);
-	assert((0 < keylen) && (GTM_PATH_MAX > keylen));
+	assert((0 < keylen) && (YDB_PATH_MAX > keylen));
 	return keylen;
 }
 
@@ -845,8 +897,9 @@ void relinkctl_rundown(boolean_t decr_attached, boolean_t do_rtnobj_shm_free)
 		 * routine-header structures that are not added to the rtn_names[] array but could potentially have
 		 * done rtnobj_shm_malloc(). In that case do rtnobj_shm_free() on those to decrement shared memory refcnts.
 		 */
-		for (fp = frame_pointer; NULL != fp; fp = SKIP_BASE_FRAME(fp->old_frame_pointer))
+		for (fp = frame_pointer; NULL != fp; fp = fp->old_frame_pointer)
 		{
+			SKIP_BASE_FRAMES(fp);		/* Updates rp */
 			rtnhdr = CURRENT_RHEAD_ADR(fp->rvector);
 			if ((NULL != rtnhdr) && rtnhdr->rtn_relinked && rtnhdr->shared_object)
 			{

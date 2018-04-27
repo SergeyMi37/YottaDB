@@ -3,9 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2005-2017 SP.ARM Ltd. St.Petersburg 		*
- *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -19,6 +17,7 @@
 #define OP_INCLUDED
 
 #include <rtnhdr.h>	/* Avoid changing a few hundred op_* and other modules to put this first */
+#include "op_tstart.h"	/* for "op_tstart" prototype */
 
 #ifdef VMS
 /* Define a TWO-argument VMS_ONLY macro (first argument is empty string but is needed because of the VMS-only , that follows) */
@@ -163,7 +162,6 @@ void	op_gvrectarg(mval *v);
 void	op_gvsavtarg(mval *v);
 void	op_gvzwithdraw(void);
 void	op_gvzwrite(UNIX_ONLY_COMMA(int4 count) int4 pat, ...);
-void	op_halt(void);
 void	op_hang(mval *num);
 void	op_hardret(void);
 void	op_horolog(mval *s);
@@ -256,7 +254,6 @@ void	op_trestart(int newlevel);
 }
 
 void	op_trollback(int rb_levels);/*BYPASSOK*/
-void	op_tstart(int implicit_flag, ...);
 void	op_unlock(void);
 void	op_unwind(void);
 void	op_use(mval *v, mval *p);
@@ -282,7 +279,7 @@ void	op_zg1(int4 level);
 void	op_zgoto(mval *rtnname, mval *lblname, int offset, int level);
 void    op_zrupdate(int argcnt, ...);
 void	op_ztrigger(void);
-void	op_zhalt(mval *returncode);
+void	op_zhalt(boolean_t is_zhalt, int4 retcode);
 void	op_zhelp_xfr(mval *subject, mval *lib);
 void	op_zhorolog(mval *s);
 void	op_zlink(mval *v, mval *quals);
@@ -311,6 +308,8 @@ int	opp_zstepret();
 int	opp_zstepretarg();
 void	op_zut(mval *s);
 void	op_zwritesvn(int svn);
+void	op_zst_over_retarg_helper(void);
+void	op_zstepretarg_helper(void);
 void	op_fnlbuild(UNIX_ONLY_COMMA(int numarg) mval *dst, ...);
 void	op_fnldata(mval *src, int pos, mval *dst);
 void	op_fnlget(mval *src, int spos, mval *dflt, mval *dst);

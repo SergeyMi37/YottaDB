@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2003-2017 Fidelity National Information	*
+ * Copyright (c) 2003-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  *	This source code contains the intellectual property	*
@@ -45,8 +45,7 @@
 #include "get_fs_block_size.h"
 #include "anticipatory_freeze.h"
 
-GBLREF	jnlpool_ctl_ptr_t	jnlpool_ctl;
-GBLREF	boolean_t		pool_init;
+GBLREF	int			pool_init;
 GBLREF  jnl_process_vector      *prc_vec;
 GBLREF	jnl_gbls_t		jgbl;
 GBLREF	uint4			mu_reorg_encrypt_in_prog;
@@ -261,6 +260,7 @@ uint4 jnl_file_open_common(gd_region *reg, off_jnl_t os_file_size, char *buff)
 	memcpy(&header->who_opened, prc_vec, SIZEOF(jnl_process_vector));
 	if (header->is_not_latest_jnl)
 	{	/* Magic message to indicate that we should try a switch without cutting links. */
+		sgtm_putmsg(buff, VARLSTCNT(6) ERR_JNLSWITCHRETRY, 4, JNL_LEN_STR(csd), DB_LEN_STR(reg));
 		RETURN_AND_SET_JPC(ERR_JNLSWITCHRETRY, 0, buff);
 	}
 	header->crash = TRUE;	/* in case this processes is crashed, this will remain TRUE */

@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -17,7 +20,7 @@
 /* Warning: A consideration is that reordering these values reorders the output in v53003/D9I10002703 as well */
 /* -------------------------- Common to UNIX and VMS --------------------------  */
 
-#define	GTM_DIST_LOG			"$gtm_dist"
+#define	YDB_DIST_LOG			"$ydb_dist"
 
 /* Database */
 #define	GTM_BLKUPGRADE_FLAG		"$gtm_blkupgrade_flag"
@@ -39,6 +42,10 @@
 /* 	GTM_DIRTREE_COLLHDR_ALWAYS	"$gtm_dirtree_collhdr_always"	dbg-only use in gvcst_put hence no #define for it or
 									else the D9I10002703 subtest will need changes for this.
 									*/
+/* YDB Database (YDB versions of above */
+#define YDB_GBLDIR			"$ydb_gbldir"
+#define YDB_MAXTPTIME			"$ydb_maxtptime"
+
 /* White-box testing */
 #define	GTM_WHITE_BOX_TEST_CASE_COUNT	"$gtm_white_box_test_case_count"
 #define	GTM_WHITE_BOX_TEST_CASE_ENABLE	"$gtm_white_box_test_case_enable"
@@ -67,7 +74,7 @@
 
 /* Miscellaneous */
 #define	ZCOMPILE			"$gtmcompile"
-#define	GTM_DEBUG_LEVEL_ENVLOG		"$gtmdbglvl"
+#define	GTM_DBGLVL			"$gtmdbglvl"
 #define	GTM_ZROUTINES			"$gtmroutines"
 #define	GTM_BOOLEAN			"$gtm_boolean"
 #define	DISABLE_ALIGN_STRINGS		"$gtm_disable_alignstr"
@@ -88,6 +95,9 @@
 #define	ZTRAP_NEW			"$gtm_ztrap_new"
 #define	ZYERROR				"$gtm_zyerror"
 #define	GTM_ZSTEP			"$gtm_zstep"
+
+/* YDB Miscellaneous (may be YDB variations of GTM logicals */
+#define YDB_DBGLVL			"$ydb_dbglvl"
 
 /* -------------------------- UNIX only --------------------------  */
 
@@ -146,10 +156,16 @@
 #define	GTMDBGFLAGS			"$gtmdbgflags"
 #define	GTMDBGFLAGS_FREQ		"$gtmdbgflags_freq"
 #define GTM_MAX_STORALLOC		"$gtm_max_storalloc"
+#define GTM_MSTACK_SIZE			"$gtm_mstack_size"
 #define GTM_IPV4_ONLY			"$gtm_ipv4_only"
 #define GTM_DMTERM			"$gtm_dmterm"
 #define	GTM_MUPJNL_PARALLEL		"$gtm_mupjnl_parallel"
 #define GTM_LOCALE			"$gtm_locale"
 #define GTM_UTFCGR_STRINGS		"$gtm_utfcgr_strings"
 #define GTM_UTFCGR_STRING_GROUPS	"$gtm_utfcgr_string_groups"
+#define GTM_STRPLLIM			"$gtm_string_pool_limit"
+
+/* YottaDB specified variables */
+#define	YDB_REPL_FILTER_TIMEOUT		"$ydb_repl_filter_timeout"
+#define	YDB_MSGPREFIX			"$ydb_msgprefix"
 

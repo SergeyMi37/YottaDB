@@ -3,6 +3,11 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
+ * Copyright (c) 2017 Stephen L Johnson. All rights reserved.	*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -51,7 +56,6 @@
 #include "zshow.h"
 #include "zwrite.h"
 #include "error.h"
-#include "longcpy.h"
 #include "stpg_sort.h"
 #include "hashtab_objcode.h"
 #include "hashtab_str.h"
@@ -83,13 +87,13 @@ GBLREF int			mlmax;
 GBLREF int 			mvar_index;
 GBLREF hash_table_objcode 	cache_table;
 GBLREF unsigned char		*msp, *stackbase, *stacktop, *stackwarn;
-GBLREF int			stp_array_size;
+GBLREF gtm_uint64_t		stp_array_size;
 GBLREF io_log_name		*io_root_log_name;
 GBLREF lvzwrite_datablk		*lvzwrite_block;
 GBLREF mliteral			literal_chain;
 GBLREF mstr			*comline_base, **stp_array;
-GBLREF mval			dollar_etrap, dollar_system, dollar_zerror, dollar_zgbldir, dollar_zstatus, dollar_zstep;
-GBLREF mval			dollar_ztrap, dollar_zyerror, zstep_action, dollar_zinterrupt, dollar_zsource, dollar_ztexit;
+GBLREF mval			dollar_system, dollar_zerror, dollar_zgbldir, dollar_zstatus;
+GBLREF mval			dollar_zyerror, zstep_action, dollar_zinterrupt, dollar_zsource, dollar_ztexit;
 GBLREF mv_stent			*mv_chain;
 GBLREF sgm_info			*first_sgm_info;
 GBLREF spdesc			indr_stringpool, rts_stringpool, stringpool;
@@ -114,6 +118,8 @@ OS_PAGE_SIZE_DECLARE
 static mstr			**topstr, **array, **arraytop;
 
 error_def(ERR_STPEXPFAIL);
+error_def(ERR_STPCRIT);
+error_def(ERR_STPOFLOW);
 
 /* See comment inside LV_NODE_KEY_STPG_ADD macro for why the ASSERT_LV_NODE_MSTR_EQUIVALENCE macro does what it does */
 #define ASSERT_LV_NODE_MSTR_EQUIVALENCE										\
@@ -175,10 +181,10 @@ MBSTART {														\
 		mstr	**curstr;						\
 										\
 		for (curstr = array; curstr < topstr; curstr++)			\
-			assert(*curstr != MSTR1);				\
+			assert(*curstr != (MSTR1));				\
 	)									\
 	assert(topstr < arraytop);						\
-	assert(0 < MSTR1->len);							\
+	assert(0 < (MSTR1)->len);						\
 	/* It would be nice to test for maxlen as well here but that causes	\
 	 * some usages of stringpool to fail as other types of stuff are	\
 	 * built into the stringppool besides strings.				\
@@ -460,7 +466,7 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 	lv_blk			*lv_blk_ptr;
 	lv_val			*lvp, *lvlimit;
 	lvTreeNode		*node, *node_limit;
-	mstr			**cstr, *x;
+	mstr			**cstr, *x, **cstr_top, *mstrp, *mstrp_top;
 	mv_stent		*mvs;
 	mval			*m, **mm, **mmtop, *mtop;
 	intszofptr_t		lv_subs;
@@ -697,14 +703,14 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 				}
 			}
 		}
-		MVAL_STPG_ADD(&dollar_etrap);
+		MVAL_STPG_ADD(&(TREF(dollar_etrap)));
 		MVAL_STPG_ADD(&dollar_system);
 		MVAL_STPG_ADD(&dollar_zsource);
-		MVAL_STPG_ADD(&dollar_ztrap);
+		MVAL_STPG_ADD(&(TREF(dollar_ztrap)));
 		MVAL_STPG_ADD(&dollar_zstatus);
 		MVAL_STPG_ADD(&dollar_zgbldir);
 		MVAL_STPG_ADD(&dollar_zinterrupt);
-		MVAL_STPG_ADD(&dollar_zstep);
+		MVAL_STPG_ADD(&(TREF(dollar_zstep)));
 		MVAL_STPG_ADD(&zstep_action);
 		MVAL_STPG_ADD(&dollar_zerror);
 		MVAL_STPG_ADD(&dollar_ztexit);
@@ -832,21 +838,21 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 		 */
 		if (NULL != frame_pointer)
 		{
-			for (sf = frame_pointer; sf < (stack_frame *)stackbase; sf = sf->old_frame_pointer)
-			{	/* Cover temp mvals in use */
-				if (NULL == sf->old_frame_pointer)
-				{	/* If trigger enabled, may need to jump over a base frame */
-					/* TODO - fix this to jump over call-ins base frames as well */
-#					ifdef GTM_TRIGGER
-					if (SFT_TRIGR & sf->type)
-					{	/* We have a trigger base frame, back up over it */
-						sf = *(stack_frame **)(sf + 1);
-						assert(sf);
-						assert(sf->old_frame_pointer);
-					} else
-#					endif
-						break;
-				}
+			for (sf = frame_pointer; sf && (sf < (stack_frame *)stackbase); sf = sf->old_frame_pointer)
+			{	/* Move temp mvals in use to stringpool
+				 *
+				 * While running through the stack, we need to skip over base frames so we process the
+				 * entire stack with the following caveats:
+				 *   1. The original base frame (has a type of SFT_COUNT but is otherwise unmarked) is the
+				 *	absolute bottom of the stack so breaks the loop. This will only be seen when the
+				 *	base frame (for execution) is a call-in frame either for simpleAPI or for call-ins.
+				 *   2. When running mumps, a different base frame, similar in construction to the original
+				 *	base frame described above, that also has a type of SFT_COUNT should stop rearward
+				 *	stack travel and break the loop.
+				 */
+				SKIP_BASE_FRAMES(sf);		/* Updates sf */
+				if (NULL == sf)
+					break;
 				assert(sf->temps_ptr);
 				if (sf->temps_ptr >= (unsigned char *)sf)
 					continue;
@@ -887,6 +893,28 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 				for (restore_ent = tf->vars; restore_ent; restore_ent = restore_ent->next)
 					MSTR_STPG_ADD(&(restore_ent->key.var_name));
 				tf = tf->old_tp_frame;
+			}
+		}
+		/* Check for mstrs being used by the simple API */
+		if (0 < TREF(sapi_mstrs_for_gc_indx))
+		{	/* The simpleAPI has some mstrs in use it needs protected. Add the array's addresses to
+			 * our own array of mstrs.
+			 */
+			for (cstr = TADR(sapi_mstrs_for_gc_ary), cstr_top = cstr + TREF(sapi_mstrs_for_gc_indx);
+			     cstr < cstr_top;
+			     cstr++)
+			{
+				MSTR_STPG_PUT(*cstr);
+			}
+		}
+		if (0 < TREF(sapi_query_node_subs_cnt))
+		{	/* Another set of mstrs used to return subscripts from ydb_node_{next,previous}_s() */
+			for (mstrp = TREF(sapi_query_node_subs), mstrp_top = mstrp + TREF(sapi_query_node_subs_cnt);
+			     mstrp < mstrp_top;
+			     mstrp++)
+			{
+				if (0 < mstrp->len)
+					MSTR_STPG_PUT(mstrp);
 			}
 		}
 	}
@@ -979,6 +1007,10 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 			expansion_failed = FALSE;	/* will be set to TRUE by condition handler if can't get memory */
 			assert((stp_incr + stringpool.top - stringpool.base) >= (space_needed + blklen));
 			DBGSTPGCOL((stderr, "incr_factor=%i stp_incr=%i space_needed=%i\n", *incr_factor, stp_incr, space_needed));
+			if ((TREF(gtm_strpllimwarned)) /* previously warned */
+				&& (0 < TREF(gtm_strpllim)) /* watching a stp limit */
+				&& ((stp_incr + stringpool.top - stringpool.base) > TREF(gtm_strpllim))) /* expanding larger */
+					rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_STPOFLOW);
 			expand_stp((ssize_t)(stp_incr + stringpool.top - stringpool.base));
 #			ifdef DEBUG
 			/* If expansion failed and stp_gcol_ch did an UNWIND and we were already in exit handling code,
@@ -1045,6 +1077,7 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 				 * the range of stringpool.base and stringpool.top. In the 'array' of (mstr *) they
 				 * must be either at the beginning, or at the end.
 				 */
+				DBGSTPGCOL((stderr, "STP_MOVE defined\n"));
 				tmpaddr = (unsigned char *)(*array)->addr;
 				if (IS_PTR_IN_RANGE(tmpaddr, stringpool.base, stringpool.top))	/* BYPASSOK */
 					topstr -= stp_move_count;/* stringpool elements before move elements in stp_array */
@@ -1091,5 +1124,11 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 		lvmon_compare_value_slots(1, 2);		/* Make sure they are the same */
 	}
 #	endif	/* !STP_MOVE */
+	if ((0 < TREF(gtm_strpllim)) /* monitoring stp limit */
+		&& ((stringpool.top - stringpool.base) > TREF(gtm_strpllim))) /* past the stp limit */
+	{
+		TREF(gtm_strpllimwarned) =  TRUE;
+		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_STPCRIT);
+	}
 	return;
 }

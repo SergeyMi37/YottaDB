@@ -3,6 +3,9 @@
  * Copyright (c) 2017 Fidelity National Information		*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -36,6 +39,8 @@
 #define RESTRICT_DSE			"DSE"
 #define RESTRICT_DIRECT_MODE		"DIRECT_MODE"
 #define RESTRICT_ZCMDLINE		"ZCMDLINE"
+#define RESTRICT_HALT			"HALT"
+#define RESTRICT_ZHALT			"ZHALT"
 #define MAX_READ_SZ			1024	/* Restrict Mnemonic shouldn't exceed this limit */
 #define MAX_FACILITY_LEN		64
 #define MAX_GROUP_LEN			64
@@ -48,16 +53,16 @@ GBLDEF	struct restrict_facilities	restrictions;
 GBLDEF	boolean_t			restrict_initialized;
 
 #ifdef DEBUG
-GBLREF	boolean_t			gtm_dist_ok_to_use;
+GBLREF	boolean_t			ydb_dist_ok_to_use;
 #endif
-GBLREF	char				gtm_dist[GTM_PATH_MAX];
+GBLREF	char				ydb_dist[YDB_PATH_MAX];
 
 error_def(ERR_RESTRICTSYNTAX);
 error_def(ERR_TEXT);
 
 void restrict_init(void)
 {
-	char		rfpath[GTM_PATH_MAX], linebuf[MAX_READ_SZ+1], *lbp, facility[MAX_FACILITY_LEN+1], group[MAX_GROUP_LEN];
+	char		rfpath[YDB_PATH_MAX], linebuf[MAX_READ_SZ+1], *lbp, facility[MAX_FACILITY_LEN+1], group[MAX_GROUP_LEN+1];
 	int		save_errno, fields, status, lineno;
 	FILE		*rfp;
 	boolean_t	restrict_one, restrict_all = FALSE;
@@ -66,8 +71,8 @@ void restrict_init(void)
 	size_t		grpbufsz;
 
 	assert(!restrict_initialized);
-	assert(gtm_dist_ok_to_use);
-	SNPRINTF(rfpath, GTM_PATH_MAX, "%s/%s", gtm_dist, RESTRICT_FILENAME);
+	assert(ydb_dist_ok_to_use);
+	SNPRINTF(rfpath, YDB_PATH_MAX, "%s/%s", ydb_dist, RESTRICT_FILENAME);
 	if (-1 == ACCESS(rfpath, W_OK))
 	{	/* Write access implies no restrictions. Otherwise try reading the file for facilities to restrict. */
 		save_errno = errno;
@@ -133,7 +138,6 @@ void restrict_init(void)
 							restrict_all = TRUE;	/* Parse error - restrict everything */
 							break;
 						}
-
 						if (0 == STRNCASECMP(facility, RESTRICT_BREAK, SIZEOF(RESTRICT_BREAK)))
 							restrictions.break_op = restrict_one;
 						else if (0 == STRNCASECMP(facility, RESTRICT_ZBREAK, SIZEOF(RESTRICT_ZBREAK)))
@@ -155,6 +159,10 @@ void restrict_init(void)
 							restrictions.dmode = restrict_one;
 						else if (0 == STRNCASECMP(facility, RESTRICT_ZCMDLINE, SIZEOF(RESTRICT_ZCMDLINE)))
 							restrictions.zcmdline = restrict_one;
+						else if (0 == STRNCASECMP(facility, RESTRICT_HALT, SIZEOF(RESTRICT_HALT)))
+							restrictions.halt_op = restrict_one;
+						else if (0 == STRNCASECMP(facility, RESTRICT_ZHALT, SIZEOF(RESTRICT_ZHALT)))
+							restrictions.zhalt_op = restrict_one;
 						else
 						{	/* Parse error - restrict everything */
 							send_msg_csa(CSA_ARG(NULL) VARLSTCNT(5) ERR_RESTRICTSYNTAX, 3,
@@ -181,6 +189,8 @@ void restrict_init(void)
 			restrictions.dse = TRUE;
 			restrictions.dmode = TRUE;
 			restrictions.zcmdline = TRUE;
+			restrictions.halt_op = TRUE;
+			restrictions.zhalt_op = TRUE;
 		}
 	}
 	restrict_initialized = TRUE;

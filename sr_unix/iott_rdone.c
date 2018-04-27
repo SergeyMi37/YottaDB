@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -88,6 +91,7 @@ int	iott_rdone (mint *v, int4 msec_timeout)	/* timeout in milliseconds */
 	assert(io_ptr->state == dev_open);
 	iott_flush(io_curr_device.out);
 	tt_ptr = (d_tt_struct*) io_ptr->dev_sp;
+	SETTERM_IF_NEEDED(io_ptr, tt_ptr);
 	timer_id = (TID) iott_rdone;
 	*v = -1;
 	dc1 = (char) 17;
@@ -494,20 +498,12 @@ int	iott_rdone (mint *v, int4 msec_timeout)	/* timeout in milliseconds */
 		*v = INPUT_CHAR;
 		if ((TT_EDITING & tt_ptr->ext_cap) && !((TRM_PASTHRU|TRM_NOECHO) & mask))
 		{	/* keep above test in sync with iott_readfl */
-			assert(tt_ptr->recall_buff.addr);
 			if (!utf8_active)
-			{
-				tt_ptr->recall_buff.addr[0] = INPUT_CHAR;
-				tt_ptr->recall_buff.len = 1;
-			}
+				iott_recall_array_add(tt_ptr, 1, inchar_width, 1, &INPUT_CHAR);
 #			ifdef UNICODE_SUPPORTED
 			else
-			{
-				memcpy(tt_ptr->recall_buff.addr, &INPUT_CHAR, SIZEOF(INPUT_CHAR));
-				tt_ptr->recall_buff.len = SIZEOF(INPUT_CHAR);
-			}
+				iott_recall_array_add(tt_ptr, 1, inchar_width, SIZEOF(INPUT_CHAR), &INPUT_CHAR);
 #			endif
-			tt_ptr->recall_width = inchar_width;
 		}
 		/* SIMPLIFY THIS! */
 		if (!utf8_active || ASCII_MAX >= INPUT_CHAR)

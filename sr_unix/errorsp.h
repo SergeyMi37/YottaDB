@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -17,11 +17,11 @@
 #define __ERRORSP_H__
 
 #include <setjmp.h>
-
 #include "gtm_stdio.h"
+
 #include "have_crit.h"
 #include "gtmimagename.h"
-#include <rtnhdr.h>
+#include "rtnhdr.h"
 #include "stack_frame.h"
 
 #ifdef __MVS__
@@ -60,9 +60,6 @@
 
 #define CONDITION_HANDLER(name)	ch_ret_type name(int arg)
 
-/* Count of arguments the TPRETRY error will make available for tp_restart to use */
-#define TPRESTART_ARG_CNT 6
-
 typedef void	ch_ret_type;
 
 /* Note that the condition_handler structure layout is relied upon by assembly code (see chnd_size, chnd_* in error.si).
@@ -99,6 +96,7 @@ GBLEXP int			severity, chnd_incr;
 #ifndef CHEXPAND
 GBLREF int4			error_condition;
 GBLREF err_ctl			merrors_ctl;
+GBLREF err_ctl			ydberrors_ctl;
 GBLREF void			(*restart)();
 GBLREF int			process_exiting;
 #endif
@@ -110,7 +108,12 @@ GBLREF int			process_exiting;
 #define SEVERE		4
 #define SEV_MSK		7
 
-#define IS_GTM_ERROR(err) ((err & FACMASK(merrors_ctl.facnum))  &&  (MSGMASK(err, merrors_ctl.facnum) <= merrors_ctl.msg_cnt))
+/* A YDB error code is one that is either in merrors.msg or in ydberrors.msg */
+#define IS_YDB_ERROR(err) (((err & FACMASK(merrors_ctl.facnum))							\
+					&& (MSGMASK(err, merrors_ctl.facnum) <= merrors_ctl.msg_cnt))		\
+				|| ((err & FACMASK(ydberrors_ctl.facnum))					\
+					&& (MSGMASK(err, ydberrors_ctl.facnum) <= ydberrors_ctl.msg_cnt)))
+
 #define CHECKHIGHBOUND(hptr)  assert(hptr < (chnd_end + (!process_exiting ? 0 : CONDSTK_RESERVE)))
 #define CHECKLOWBOUND(hptr)   assert(hptr >= (&chnd[0] - 1)) /* Low check for chnd - 1 in case last handler setup new handler */
 
@@ -159,30 +162,37 @@ void ch_trace_point() {return;}
  * if proc_act_type is non-zero we set an error frame flag and getframe instead detours to error_return which deals with
  * the module appropriately.
  */
-#define MUM_TSTART		{												\
-					GBLREF unsigned short	proc_act_type;							\
-					GBLREF int		process_exiting;						\
-																\
-					intrpt_state_t		prev_intrpt_state;						\
-																\
-					assert(!multi_thread_in_use);								\
-					assert(!process_exiting);								\
-					CHTRACEPOINT;										\
-					DEFER_INTERRUPTS(INTRPT_IN_CONDSTK, prev_intrpt_state);					\
-					for ( ;(ctxt > &chnd[0]) && (ctxt->ch != &mdb_condition_handler); ctxt--);		\
-					CHECKLOWBOUND(ctxt);									\
-					assert((ctxt->ch == &mdb_condition_handler)						\
-					       && (FALSE == ctxt->save_active_ch->ch_active));					\
-					/* Absolutely critical that this *never* occur hence assertpro() */			\
-					assertpro(!(SSF_NORET_VIA_MUMTSTART & frame_pointer->flags) || (0 != proc_act_type)	\
-						  || (SFF_ETRAP_ERR & frame_pointer->flags));					\
-					DBGEHND((stderr, "MUM_TSTART: Frame 0x"lvaddr" dispatched\n", frame_pointer));		\
-					ctxt->ch_active = FALSE; 								\
-					restart = mum_tstart;									\
-					active_ch = ctxt;									\
-					ENABLE_INTERRUPTS(INTRPT_IN_CONDSTK, prev_intrpt_state);				\
-					longjmp(ctxt->jmp, 1);									\
-				}
+#define MUM_TSTART	{												\
+				GBLREF unsigned short	proc_act_type;							\
+				GBLREF int		process_exiting;						\
+															\
+				intrpt_state_t		prev_intrpt_state;						\
+															\
+				assert(!multi_thread_in_use);								\
+				assert(!process_exiting);								\
+				CHTRACEPOINT;										\
+				if (ctxt->ch == &ydb_simpleapi_ch)							\
+				{	/* The CI environment was created by a simpleAPI call.				\
+					 * Return control back to that by triggering an error.				\
+					 */										\
+					rts_error(VARLSTCNT(1) ERR_REPEATERROR);					\
+					assert(FALSE);	/* the previous rts_error() should not return */		\
+				}											\
+				DEFER_INTERRUPTS(INTRPT_IN_CONDSTK, prev_intrpt_state);					\
+				for ( ;(ctxt > &chnd[0]) && (ctxt->ch != &mdb_condition_handler); ctxt--);		\
+				CHECKLOWBOUND(ctxt);									\
+				assert((ctxt->ch == &mdb_condition_handler)						\
+				       && (FALSE == ctxt->save_active_ch->ch_active));					\
+				/* Absolutely critical that this *never* occur hence assertpro() */			\
+				assertpro(!(SSF_NORET_VIA_MUMTSTART & frame_pointer->flags) || (0 != proc_act_type)	\
+					  || (SFF_ETRAP_ERR & frame_pointer->flags));					\
+				DBGEHND((stderr, "MUM_TSTART: Frame 0x"lvaddr" dispatched\n", frame_pointer));		\
+				ctxt->ch_active = FALSE; 								\
+				restart = mum_tstart;									\
+				active_ch = ctxt;									\
+				ENABLE_INTERRUPTS(INTRPT_IN_CONDSTK, prev_intrpt_state);				\
+				longjmp(ctxt->jmp, 1);									\
+			}
 
 /* Assumed that when this macro is used, interrupts are disabled. One case where that is not done exists which is in
  * sr_unix/gtm_asm_establish.c (called by assembler routines). Once the assembler ESTABLISH macros support doing the
@@ -430,12 +440,19 @@ MBSTART {													\
 																\
 					intrpt_state_t			prev_intrpt_state;					\
 																\
-					/* If threads are in use, an UNWIND inside a condition-handler transitions		\
-					 * the thread from error-handling to a no-error state which can cause an		\
-					 * out-of-design situation because we assume that all threads which go			\
-					 * through any condition-handler exit and never resume execution.			\
-					 */											\
-					assert(!multi_thread_in_use);								\
+					if (multi_thread_in_use)								\
+					{	/* If threads are in use, an UNWIND inside a condition-handler transitions	\
+						 * the thread from error-handling to a no-error state. The condition handler	\
+						 * would have gotten the pthread mutex lock as part of the "rts_error_va" call	\
+						 * and that needs to be released before this thread unwinds its error context	\
+						 * (i.e. resumes normal execution). This code has some similarity to that in	\
+						 * GTM_PTHREAD_EXIT macro. In dbg, assert that we hold the thread mutex lock	\
+						 * but in pro handle the case we do not hold it (reasons unknown).		\
+						 */										\
+						assert(IS_LIBPTHREAD_MUTEX_LOCK_HOLDER);					\
+						if (IS_LIBPTHREAD_MUTEX_LOCK_HOLDER)						\
+							PTHREAD_MUTEX_UNLOCK_IF_NEEDED(FALSE);					\
+					}											\
 					assert(!process_exiting || ok_to_UNWIND_in_exit_handling);				\
 					/* When we hit an error in the midst of commit, t_ch/t_commit_cleanup should be invoked	\
 					 * and clean it up before any condition handler on the stack unwinds. 			\
@@ -444,12 +461,12 @@ MBSTART {													\
 					CHTRACEPOINT;										\
 					DEFER_INTERRUPTS(INTRPT_IN_CONDSTK, prev_intrpt_state);					\
 					chnd[current_ch].ch_active = FALSE;							\
+					assert((active_ch + 1)->dollar_tlevel == dollar_tlevel);					\
 					active_ch++;										\
 					CHECKHIGHBOUND(active_ch);								\
 					ctxt = active_ch;									\
 					ENABLE_INTERRUPTS(INTRPT_IN_CONDSTK, prev_intrpt_state);				\
 					assert(UNWINDABLE(active_ch));								\
-					assert(active_ch->dollar_tlevel == dollar_tlevel);					\
 					longjmp(active_ch->jmp, -1);								\
 				}
 
@@ -541,7 +558,7 @@ error_def(ERR_OUTOFSPACE);
 				 || SIGNAL == (int)ERR_STACKOFLOW)
 
 /* true if above or SEVERE and GTM error (perhaps add some "system" errors) */
-#define DUMPABLE                ((SEVERITY == SEVERE) && IS_GTM_ERROR(SIGNAL)						\
+#define DUMPABLE                ((SEVERITY == SEVERE) && IS_YDB_ERROR(SIGNAL)						\
 					&& (SIGNAL != (int)ERR_OUTOFSPACE)						\
 					DEBUG_ONLY(&& (WBTEST_ENABLED(WBTEST_SKIP_CORE_FOR_MEMORY_ERROR)		\
 							? (SIGNAL != (int)ERR_MEMORY) : TRUE)))
@@ -567,6 +584,7 @@ void ch_cond_core(void);
 void ch_overrun(void);
 void util_cond_flush(void);
 void stop_image_ch(void);
+
 CONDITION_HANDLER(dbopen_ch);
 CONDITION_HANDLER(gtmci_ch);
 CONDITION_HANDLER(gtmci_init_ch);

@@ -1,6 +1,7 @@
 /****************************************************************
  *								*
- *	Copyright 2001, 2014 Fidelity Information Services, Inc	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
+ * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -40,6 +41,7 @@
 														\
 		TAREF1(parm_ary_len, PARM_ARY_INDEX) = TAREF1(parm_str_len, PARM_ARY_INDEX);			\
 	}													\
+	assert(NULL != (TAREF1(parm_ary, PARM_ARY_INDEX))); /* 4SCA: parm_ary_len ensure this */		\
 }
 
 #if MAX_OPT_LEN > MAX_LINE
@@ -880,7 +882,7 @@ int cli_present(char *entry)
 	char		local_str[MAX_LINE];
 
 	strncpy(local_str, entry, SIZEOF(local_str) - 1);
-
+	local_str[SIZEOF(local_str) - 1] = '\0';
 	cli_strupper(local_str);
 	if (pparm = get_parm_entry(local_str))
 	{
@@ -919,6 +921,7 @@ bool cli_get_value(char *entry, char val_buf[])
 	SETUP_THREADGBL_ACCESS;
 #	endif
 	strncpy(local_str, entry, SIZEOF(local_str) - 1);
+	local_str[SIZEOF(local_str) - 1] = '\0';
 	cli_strupper(local_str);
 	if (NULL == (pparm = get_parm_entry(local_str)))
 		return (FALSE);
@@ -962,6 +965,7 @@ boolean_t cli_negated(char *entry) 		/* entity */
 	char		local_str[MAX_LINE];
 
 	strncpy(local_str, entry, SIZEOF(local_str) - 1);
+	local_str[SIZEOF(local_str) - 1] = '\0';
 	cli_strupper(local_str);
 	if (pparm = get_parm_entry(local_str))
 		return (pparm->negated);
@@ -984,6 +988,7 @@ bool cli_get_parm(char *entry, char val_buf[])
 	ind = 0;
 	assert(0 != gpcmd_parm_vals);
 	STRNCPY_STR(local_str, entry, SIZEOF(local_str) - 1);
+	local_str[SIZEOF(local_str) - 1] = '\0';
 	cli_strupper(local_str);
 	match_ind = -1;
 	while (0 < strlen(sp = (gpcmd_parm_vals + ind)->name)) /* implicit assignment intended */

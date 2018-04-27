@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2011-2017 Fidelity National Information	*
+ * Copyright (c) 2011-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -62,7 +65,7 @@ boolean_t do_blocking_semop(int semid, enum gtm_semtype semtype, boolean_t *stac
 {
 	boolean_t			need_stacktrace, indefinite_wait;
 	char				*msgstr;
-	int				status = SS_NORMAL, save_errno, sem_pid, semval, i, sopcnt;
+	int				status = SS_NORMAL, save_errno, sem_pid = 0, semval, i, sopcnt;
 	uint4				loopcnt = 0, max_hrtbt_delta, lcl_hrtbt_cntr, stuck_cnt = 0;
 	boolean_t			stacktrace_issued = FALSE, ok_to_bypass;
 	struct sembuf			sop[3];
@@ -76,7 +79,7 @@ boolean_t do_blocking_semop(int semid, enum gtm_semtype semtype, boolean_t *stac
 	assert(!((NULL == timedout) ^ (NULL == stacktrace_time)));
 	*sem_halted = FALSE;
 	/* Access control semaphore should not be increased when the process is readonly */
-	SET_GTM_SOP_ARRAY(sop, sopcnt, (incr_cnt && (IS_FTOK_SEM || !reg->read_only)), (SEM_UNDO | IPC_NOWAIT));
+	SET_YDB_SOP_ARRAY(sop, sopcnt, (incr_cnt && (IS_FTOK_SEM || !reg->read_only)), (SEM_UNDO | IPC_NOWAIT));
 	/* If DSE or LKE or MUPIP FREEZE -ONLINE, it is okay to bypass but only if input "*bypass" is TRUE.
 	 * If "*bypass" is FALSE, that overrides anything else.
 	 */
@@ -133,7 +136,7 @@ boolean_t do_blocking_semop(int semid, enum gtm_semtype semtype, boolean_t *stac
 						 LEN_AND_STR((IS_LKE_IMAGE ? "LKE" : "DSE")), process_id,
 						 LEN_AND_STR(sem_names[semtype]), REG_LEN_STR(reg), DB_LEN_STR(reg), sem_pid);
 					/* If this is a readonly access, we don't increment access semaphore's counter. See
-					 * SET_GTM_SOP_ARRAY definition in gtm_semutils.h and how it is called from db_init().
+					 * SET_YDB_SOP_ARRAY definition in gtm_semutils.h and how it is called from db_init().
 					 */
 					if (!(*sem_halted) && incr_cnt && (IS_FTOK_SEM || !reg->read_only))
 					{

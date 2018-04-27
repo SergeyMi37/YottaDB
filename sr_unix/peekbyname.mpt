@@ -1,7 +1,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;								;
-; Copyright (c) 2015-2017 Fidelity National Information		;
+; Copyright (c) 2015-2018 Fidelity National Information		;
 ; Services, Inc. and/or its subsidiaries. All rights reserved.	;
+;								;
+; Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	;
+; All rights reserved.						;
 ;								;
 ;	This source code contains the intellectual property	;
 ;	of its copyright holder(s), and is made available	;
@@ -33,7 +36,7 @@
 ;        This argument overrides the automatic format detection by the %PEEKBYNAME utility.
 
 %PEEKBYNAME(field,regindex,format)
-	if '$quit write "GTM-E-EXTRINSIC Use $$ rather than DO to invoke ",$text(+0) quit
+	if '$quit write "YDB-E-EXTRINSIC Use $$ rather than DO to invoke ",$text(+0) quit
 	new anindexval,aregname,digits,etrap,first,ishexnum,land,length,mnemonicandreg,offset,pattern,rest,type,typeindex
 	new dim,ret,idx,off
 	set etrap=$etrap
@@ -43,6 +46,7 @@
 	set anindexval="an index value",aregname="a region name"
 	set first=$piece(field,".",1)
 	set rest=$piece(field,".",2,$length(field,"."))
+	if ("sgmnt_data"=first)&("freeze_online"=rest) set first="node_local" ; cough, cough, kludge, kludge - temporarily hide move
 	do:""=rest error("NOFIELD")
 	set digits=$select("x86"=$p($zver," ",4):8,1:16)
 	set regindex=$get(regindex)
@@ -70,7 +74,7 @@
 	else  do error("UNSUPSTRUCT",first)
 	do
 	.	new $zgbldir
-	.	set $zgbldir=$ztrnlnm("gtm_dist")_"/gtmhelp.gld"
+	.	set $zgbldir=$ztrnlnm("ydb_dist")_"/gtmhelp.gld"
 	.	set typeindex=$get(^gtmtypfldindx(first,rest))
 	.	do:0=+typeindex error("INVALID",first,rest)
 	.	set type=^gtmtypes(first,typeindex,"type")
@@ -106,13 +110,13 @@
 
 ; Raises an error with given arguments
 error(err,first,args)
-	new i,x
+	new str,x
 	set str=$text(@("ERRPBN"_err)),x="x="_$piece(str,";",3),@x,str=$piece(str,";",2)_","
 	if ("PARMREQ"=err)!("INVALID"=err) set args=""""_first_""":"""_args_""""
 	else  if ("NOPARM"=err)!("UNSUPSTRUCT"=err)!("UNSUPTYPE"=err) set args=""""_first_""""
 	else  set args=""""""
-	set $etrap="if $zstatus[""UNKNOWN"" set $zstatus=""%GTM-E-""_str_x zgoto land"	; in case of older versions
-	xecute "zmessage "_$translate(str,",",":")_args	; XECUTE because indirection exploded in older versions
+	set $etrap="if $zstatus[""UNKNOWN"" set $zstatus=""%YDB-E-""_str_x zgoto land"	; in case of older versions
+	xecute "zmessage "_$translate(str,",",":")_args			; XECUTE because indirection exploded in older versions
 	zgoto land
 
 ; Prints all $ZPEEK() acceptable fields
@@ -129,7 +133,7 @@ LIST(output)
 ; Iterate through names of the structures defined in ^gtmtypes and execute given command for each one
 listiterate(out)
 	new $zgbldir,fieldname,i,j,struct,write
-	set $zgbldir=$ztrnlnm("gtm_dist")_"/gtmhelp.gld"
+	set $zgbldir=$ztrnlnm("ydb_dist")_"/gtmhelp.gld"
 	set write=100>$zdata(out)
 	for i=1:1 set struct=$piece($text(struct+i),";",2) quit:""=struct  do
 	. for j=1:1  set fieldname=$get(^gtmtypes(struct,j,"name")) quit:""=fieldname  do
@@ -139,7 +143,7 @@ listiterate(out)
 
 data(field)
 	new $etrap set $etrap="set $ecode="""" quit:$quit 0 quit"
-	quit $data(^|"$gtm_dist/gtmhelp.gld"|gtmtypfldindx($piece(field,"."),$piece(field,".",2,$length(field,".")))) quit
+	quit $data(^|"$ydb_dist/gtmhelp.gld"|gtmtypfldindx($piece(field,"."),$piece(field,".",2,$length(field,".")))) quit
 
 ; the below error definitions derived from merrors.msg are relatively complete so older version where they weren't defined get info
 ERRPBNPARMREQ		;150383746;"A first parameter value "_first_" requires a second parameter specified containing "_args

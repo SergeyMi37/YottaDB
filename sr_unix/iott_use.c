@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -40,6 +43,8 @@
 #include "gtm_tparm.h"
 #include "outofband.h"
 #include "restrict.h"
+#include "op.h"
+#include "indir_enum.h"
 
 LITDEF nametabent filter_names[] =
 {
@@ -88,7 +93,10 @@ void iott_use(io_desc *iod, mval *pp)
 	uint4			mask_in;
 	unsigned char		ch, len;
 	boolean_t		ch_set;
+	mval			mv;
+	DCL_THREADGBL_ACCESS;
 
+	SETUP_THREADGBL_ACCESS;
 	p_offset = 0;
 	assert(iod->state == dev_open);
 	ESTABLISH_GTMIO_CH(&iod->pair, ch_set);
@@ -209,13 +217,6 @@ void iott_use(io_desc *iod, mval *pp)
 					if (io_curr_device.in == io_std_device.in)
 					{	/* $PRINCIPAL only */
 						tt_ptr->ext_cap |= TT_EDITING;
-						if (!tt_ptr->recall_buff.addr)
-						{
-							assert(tt_ptr->in_buf_sz);
-							tt_ptr->recall_buff.addr = malloc(tt_ptr->in_buf_sz);
-							tt_ptr->recall_size = tt_ptr->in_buf_sz;
-							tt_ptr->recall_buff.len = 0;    /* nothing in buffer */
-						}
 					}
 					break;
 				case iop_noediting:
@@ -234,9 +235,7 @@ void iott_use(io_desc *iod, mval *pp)
 						gtm_tputs(CLR_EOL, 1, outc);
 					break;
 				case iop_exception:
-					iod->error_handler.len = *(pp->str.addr + p_offset);
-					iod->error_handler.addr = (char *)(pp->str.addr + p_offset + 1);
-					s2pool(&iod->error_handler);
+					DEF_EXCEPTION(pp, p_offset, iod);
 					break;
 				case iop_filter:
 					len = *(pp->str.addr + p_offset);
@@ -394,7 +393,7 @@ void iott_use(io_desc *iod, mval *pp)
 				case iop_ipchset:
 					{
 #						ifdef KEEP_zOS_EBCDIC
-						if ( (iconv_t)0 != iod->input_conv_cd )
+						if ((iconv_t)0 != iod->input_conv_cd)
 						{
 							ICONV_CLOSE_CD(iod->input_conv_cd);
 						}
@@ -416,7 +415,7 @@ void iott_use(io_desc *iod, mval *pp)
 				case iop_opchset:
 					{
 #						ifdef KEEP_zOS_EBCDIC
-						if ( (iconv_t)0 != iod->output_conv_cd)
+						if ((iconv_t)0 != iod->output_conv_cd)
 						{
 							ICONV_CLOSE_CD(iod->output_conv_cd);
 						}
@@ -454,7 +453,10 @@ void iott_use(io_desc *iod, mval *pp)
 		temp_ptr = (d_tt_struct *)d_in->dev_sp;
 		Tcsetattr(tt_ptr->fildes, TCSANOW, &t, status, save_errno);
 		if (0 != status)
+		{
+			assert(FALSE);
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_TCSETATTR, 1, tt_ptr->fildes, save_errno);
+		}
 		if (tt == d_in->type)
 		{
 			temp_ptr->term_ctrl = mask_in;

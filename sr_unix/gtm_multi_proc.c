@@ -3,6 +3,9 @@
  * Copyright (c) 2015-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -150,7 +153,7 @@ int	gtm_multi_proc(gtm_multi_proc_fnptr_t fnptr, int ntasks, int max_procs,
 	if (-1 == shmid)
 	{
 		save_errno = errno;
-		SNPRINTF(errstr, SIZEOF(errstr), "shmget() : shmsize=0x%llx", shm_size);
+		SNPRINTF(errstr, SIZEOF(errstr), "shmget() : shmsize=0x%llx", (unsigned long long)shm_size);
 		gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(8) ERR_SYSCALL, 5, LEN_AND_STR(errstr), CALLFROM, save_errno);
 		return -1;
 	}
@@ -158,8 +161,7 @@ int	gtm_multi_proc(gtm_multi_proc_fnptr_t fnptr, int ntasks, int max_procs,
 	if (-1 == (sm_long_t)(multi_proc_shm_hdr))
 	{
 		save_errno = errno;
-		SNPRINTF(errstr, SIZEOF(errstr), "shmat() : shmid=%d shmsize=0x%llx",
-												shmid, shm_size);
+		SNPRINTF(errstr, SIZEOF(errstr), "shmat() : shmid=%d shmsize=0x%llx", shmid, (unsigned long long)shm_size);
 		gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(8) ERR_SYSCALL, 5, LEN_AND_STR(errstr), CALLFROM, save_errno);
 		return -1;
 	}

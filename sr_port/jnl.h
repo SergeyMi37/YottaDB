@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  *	This source code contains the intellectual property	*
@@ -1154,6 +1154,7 @@ typedef struct mu_set_reglist
 	struct mu_set_reglist	*fPtr;		/* all fields after this are used for mupip_set_journal.c */
 	gd_region		*reg;
 	char			unique_id[UNIQUE_ID_SIZE];
+	int4			fid_index;
 	enum rlist_state	state;
 	sgmnt_data_ptr_t 	sd;
 	bool			exclusive;	/* standalone access is required for this region */
@@ -1365,16 +1366,17 @@ MBSTART {														\
 
 #define	FINISH_JNL_PHASE2_IN_JNLPOOL_IF_NEEDED(REPLICATION, JNLPOOL)							\
 MBSTART {														\
-	if (REPLICATION && JNLPOOL.jrs.tot_jrec_len)									\
+	if (REPLICATION && JNLPOOL->jrs.tot_jrec_len)									\
 	{														\
 		JPL_PHASE2_WRITE_COMPLETE(JNLPOOL);	/* Mark jnl record writing into jnlpool   as complete */	\
-		assert(0 == JNLPOOL.jrs.tot_jrec_len);									\
+		assert(0 == JNLPOOL->jrs.tot_jrec_len);									\
 	}														\
 } MBEND
 
 #define	NONTP_FINISH_JNL_PHASE2_IN_JNLBUFF_AND_JNLPOOL(CSA, JRS, REPLICATION, JNLPOOL)					\
 MBSTART {														\
 	FINISH_JNL_PHASE2_IN_JNLBUFF(CSA, JRS);				/* Step CMT16 (if BG), Step CMT06a (if MM) */	\
+	assert(!REPLICATION || (!csa->jnlpool || (csa->jnlpool == JNLPOOL)));						\
 	FINISH_JNL_PHASE2_IN_JNLPOOL_IF_NEEDED(REPLICATION, JNLPOOL);	/* Step CMT17 (if BG), Step CMT06b (if MM) */	\
 } MBEND
 
@@ -1389,10 +1391,11 @@ MBSTART {														\
 		assert(si->update_trans);										\
 		jrs = si->jbuf_rsrv_ptr;										\
 		assert(JNL_ALLOWED(csa));										\
+		assert(!REPLICATION || (!csa->jnlpool || (csa->jnlpool == JNLPOOL)));					\
 		if (NEED_TO_FINISH_JNL_PHASE2(jrs))									\
-			FINISH_JNL_PHASE2_IN_JNLBUFF(csa, jrs);		/* Step CMT16 (if BG), Step CMT06a (if MM) */	\
+			FINISH_JNL_PHASE2_IN_JNLBUFF(csa, jrs);		/* Step CMT16 (if BG) */			\
 	}														\
-	FINISH_JNL_PHASE2_IN_JNLPOOL_IF_NEEDED(replication, jnlpool);	/* Step CMT17 (if BG), Step CMT06b (if MM) */	\
+	FINISH_JNL_PHASE2_IN_JNLPOOL_IF_NEEDED(replication, JNLPOOL);	/* Step CMT17 (if BG) */			\
 } MBEND
 
 /* BEGIN : Structures used by "jnl_write_reserve" */
@@ -1688,11 +1691,13 @@ MBSTART {								\
 }
 
 /* Macro that checks that the region seqno in the filehdr is never more than the seqno in the journal pool */
-#define	ASSERT_JNL_SEQNO_FILEHDR_JNLPOOL(csd, jnlpool_ctl)						\
-{	/* The seqno in the file header should be at most 1 greater than that in the journal pool.	\
-	 * See step (5) of of commit logic flow in secshr_db_clnup.c for why. Assert that.		\
-	 */												\
-	assert((NULL == jnlpool_ctl) || (csd->reg_seqno <= (jnlpool_ctl->jnl_seqno + 1)));		\
+#define	ASSERT_JNL_SEQNO_FILEHDR_JNLPOOL(CSA, JNLPOOL)										\
+{	/* The seqno in the file header should be at most 1 greater than that in the journal pool.				\
+	 * See step (5) of of commit logic flow in secshr_db_clnup.c for why. Assert that.					\
+	 * If CSA->jnlpool is NULL it means there have been no updates to the region so no jnlpool is attached.			\
+	 */															\
+	assert((!CSA->jnlpool || !JNLPOOL || !JNLPOOL->jnlpool_ctl)								\
+			|| (CSA->hdr->reg_seqno <= (JNLPOOL->jnlpool_ctl->jnl_seqno + 1)));					\
 }
 /* Given the record size, construct an IV to be used for a subsequent encryption or decryption operation. Currently, the maximum IV
  * length our encryption plug-in supports is 16 bytes, and we only have three bytes of information suitable for an IV at the
@@ -1863,7 +1868,7 @@ jnl_format_buffer	*jnl_format(jnl_action_code opcode, gv_key *key, mval *val, ui
 void	wcs_defer_wipchk_ast(jnl_private_control *jpc);
 uint4	set_jnl_file_close(void);
 uint4 	jnl_file_open_common(gd_region *reg, off_jnl_t os_file_size, char *err_str);
-uint4	jnl_file_open_switch(gd_region *reg, uint4 sts);
+uint4	jnl_file_open_switch(gd_region *reg, uint4 sts, char *err_str);
 void	jnl_file_close(gd_region *reg, boolean_t clean, boolean_t in_jnl_switch);
 
 /* Consider putting followings in a mupip only header file  : Layek 2/18/2003 */

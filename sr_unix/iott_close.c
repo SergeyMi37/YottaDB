@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2015 Fidelity National Information 	*
+ * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -22,6 +25,7 @@
 #include "stringpool.h"
 #include "setterm.h"
 #include "error.h"
+#include "comline.h"
 
 GBLREF io_pair		io_std_device;
 LITREF unsigned char	io_params_size[];
@@ -35,6 +39,7 @@ void iott_close(io_desc *v, mval *pp)
 	int		status;
 	int		p_offset;
 	boolean_t	ch_set;
+	recall_ctxt_t	*recall, *recall_top;
 
 	assert(v->type == tt);
 	if (v->state != dev_open)
@@ -74,10 +79,20 @@ void iott_close(io_desc *v, mval *pp)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(8) ERR_SYSCALL, 5,
 				RTS_ERROR_LITERAL("iott_close(CLOSEFILE)"), CALLFROM, status);
 	}
-	if (ttptr->recall_buff.addr)
+	if (NULL != ttptr->recall_array)
+	{	/* Free up structures allocated in "iott_recall_array_add" */
+		for (recall = ttptr->recall_array, recall_top = recall + MAX_RECALL; recall < recall_top; recall++)
+		{
+			if (NULL != recall->buff)
+				free(recall->buff);
+		}
+		free(ttptr->recall_array);
+		ttptr->recall_array = NULL;
+	}
+	if (v->dollar.devicebuffer)
 	{
-		free(ttptr->recall_buff.addr);
-		ttptr->recall_buff.addr = NULL;
+		free(v->dollar.devicebuffer);
+		v->dollar.devicebuffer = NULL;
 	}
 	REVERT_GTMIO_CH(&v->pair, ch_set);
 	return;

@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2010-2017 Fidelity National Information	*
+ * Copyright (c) 2010-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -38,6 +38,8 @@
 THREADGBLDEF(grabbing_crit, 			gd_region *)			/* Region currently grabbing crit in (if any) */
 
 /* Compiler */
+THREADGBLDEF(blkmod_fail_level,		int4)				/* TP trace reporting element */
+THREADGBLDEF(blkmod_fail_type,			int4)				/* TP trace reporting element */
 THREADGBLDEF(block_level,			int4)				/* used to check embedded subroutine levels */
 THREADGBLDEF(boolchain,				triple)				/* anchor for chain used by bx_boolop  */
 THREADGBLDEF(boolchain_ptr,			triple *)			/* pointer to anchor for chain used by bx_boolop  */
@@ -183,6 +185,11 @@ THREADGBLDEF(tp_restart_entryref,		mval)				/* tp_restart position for reporting
 THREADGBLDEF(tp_restart_failhist_indx,		int4)				/* tp_restart dbg restart history index */
 THREADGBLDEF(tprestart_syslog_delta,		int4)				/* defines every n-th restart to be logged for tp */
 THREADGBLDEF(tprestart_syslog_first,		int4)				/* # of TP restarts logged unconditionally */
+THREADGBLAR1DEF(t_fail_hist_blk,		block_id,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_bttn,			trans_num,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_histtn,		trans_num,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_hist,			gv_namehead *,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_hist_reg,		gd_region *,	(CDB_MAX_TRIES))/* array for TP tracing */
 THREADGBLDEF(transform,				boolean_t)			/* flag collation transform eligible */
 THREADGBLDEF(wcs_recover_done,			boolean_t)			/* TRUE if wcs_recover was ever invoked in this
 										 * process. */
@@ -220,10 +227,13 @@ THREADGBLFPTR(create_fatal_error_zshow_dmp_fptr, void, 		(void))		/* Fptr for gt
 THREADGBLDEF(disable_sigcont,			boolean_t)			/* indicates whether the SIGCONT signal
 										 * is allowed internally */
 THREADGBLDEF(dollar_zcompile,			mstr)				/* compiler qualifiers */
+THREADGBLDEF(dollar_etrap,			mval)				/* $etrap - standard error action */
 THREADGBLDEF(dollar_zmode,			mval)				/* run mode indicator */
 THREADGBLDEF(dollar_zonlnrlbk,			int)				/* ISV (incremented for every online rollback) */
 THREADGBLDEF(dollar_zclose,			int)				/* ISV (set to close status for PIPE device) */
 THREADGBLDEF(dollar_zroutines,			mstr)				/* routine search list */
+THREADGBLDEF(dollar_zstep,			mval)				/* $zstep - zstep action */
+THREADGBLDEF(dollar_ztrap,			mval)				/* $ztrap - recursive try error action */
 THREADGBLDEF(error_on_jnl_file_lost,		unsigned int)			/* controls error handling done by jnl_file_lost.
 										 * 0 (default) : Turn off journaling and continue.
 										 * 1 : Keep journaling on, throw rts_error */
@@ -232,6 +242,7 @@ THREADGBLDEF(fnzsearch_sub_mval,		mval)				/* op_fnzsearch subscript constuctor 
 THREADGBLDEF(fnzsearch_nullsubs_sav,		int)				/* op_fnzsearch temp for null subs control */
 THREADGBLDEF(fnzsearch_globbuf_ptr,		glob_t *)			/* op_fnzsearch temp for pointing to glob results */
 THREADGBLDEF(glvn_pool_ptr,			glvn_pool *)			/* Pointer to the glvn pool */
+THREADGBLDEF(gtmci_retval,			mval *)				/* Pointer to return value from call-in */
 #ifdef GTMDBGFLAGS_ENABLED
 THREADGBLDEF(gtmdbgflags,			int)
 THREADGBLDEF(gtmdbgflags_freq,			int)
@@ -243,6 +254,9 @@ THREADGBLDEF(gtm_environment_init,		boolean_t)			/* indicates GT.M development e
 										 * than a production environment */
 THREADGBLFPTR(gtm_sigusr1_handler,		void, 		(void))		/* SIGUSR1 signal handler function ptr */
 THREADGBLDEF(gtm_linktmpdir,			mstr)				/* Directory to use for relinkctl files */
+THREADGBLDEF(gtm_strpllim,			int4)				/* if non-zero, sets limit on stringpool */
+THREADGBLDEF(gtm_strpllimwarned,		boolean_t)			/* already hit limit on stringpool  */
+THREADGBLDEF(gtm_trigger_etrap,			mval)				/* $etrap - for use in triggers */
 THREADGBLDEF(gtm_trctbl_cur,			trctbl_entry *)			/* Current gtm trace table entry */
 THREADGBLDEF(gtm_trctbl_end,			trctbl_entry *)			/* End of gtm trace table (last entry + 1) */
 THREADGBLDEF(gtm_trctbl_groups,			unsigned int)			/* Trace group mask (max 31 groups) */
@@ -266,6 +280,7 @@ THREADGBLDEF(lab_proxy,				lab_tabent_proxy)		/* Placeholder storing lab_ln_ptr 
 										 * pointer and has_parms value, so they are
 										 * contiguous in memory */
 #endif
+THREADGBLDEF(libyottadb_active_rtn,		libyottadb_routines)		/* Which routine is currently active */
 THREADGBLDEF(mprof_alloc_reclaim,		boolean_t)			/* Flag indicating whether the temporarily allocated
 										 * memory should be reclaimed */
 THREADGBLDEF(mprof_chunk_avail_size,		int)				/* Number of mprof stack frames that can fit in
@@ -294,6 +309,9 @@ THREADGBLDEF(gtm_autorelink_keeprtn,		boolean_t)			/* do not let go of objects i
 THREADGBLDEF(open_shlib_root,			open_shlib *)			/* Anchor for open shared library list */
 THREADGBLDEF(parm_pool_ptr,			parm_pool *)			/* Pointer to the parameter pool */
 THREADGBLDEF(parms_cnt,                         unsigned int)                   /* Parameters count */
+THREADGBLDEF(sapi_query_node_subs,		mstr *)				/* -> Array of YDB_MAX_SUBS mstrs holding subs
+										 * .. to return to ydb_node_*_s(). */
+THREADGBLDEF(sapi_query_node_subs_cnt,		int)				/* Count of subs filled in */
 THREADGBLDEF(statsdb_fnerr_reason,		int)				/* Failure code for "gvcst_set_statsdb_fname" */
 THREADGBLAR1DEF(zpeek_regname,			char,		NAME_ENTRY_SZ)	/* Last $ZPEEK() region specified */
 THREADGBLDEF(zpeek_regname_len,			int)				/* Length of zpeekop_regname */
@@ -306,22 +324,29 @@ THREADGBLDEF(relink_allowed,			int)				/* Non-zero if recursive relink permitted
 THREADGBLDEF(save_zhist,			zro_hist *)			/* Temp storage for zro_hist blk so condition hndler
 										 * can get a hold of it if necessary to free it */
 #endif
+THREADGBLAR1DEF(sapi_mstrs_for_gc_ary,		mstr *, MAX_SAPI_MSTR_GC_INDX + 1)	/* SimpleAPI mstr array needed by GC */
+THREADGBLDEF(sapi_mstrs_for_gc_indx,		int)				/* Index into gc mstr array of next avail slot */
 THREADGBLDEF(set_zroutines_cycle,		uint4)				/* Informs us if we changed $ZROUTINES between
 										 * linking a routine and invoking it
 										 */
 THREADGBLDEF(statsDB_init_defer_anchor,		statsDB_deferred_init_que_elem *) /* Anchor point for deferred init of statsDBs */
-THREADGBLDEF(statshare_opted_in,		boolean_t)			/* Flag when true shared stats collection active */
+THREADGBLDEF(statshare_opted_in,		uint4)				/* Flag controlling stats collection */
 THREADGBLDEF(trans_code_pop,			mval *)				/* trans_code holder for $ZTRAP popping */
 THREADGBLDEF(view_ydirt_str,			char *)				/* op_view working storage for ydir* ops */
 THREADGBLDEF(view_ydirt_str_len,		int4)				/* Part of op_view working storage for ydir* ops */
+THREADGBLDEF(view_region_list,			tp_region *)			/* used by view_arg_convert and op_view/view_dbop */
+THREADGBLDEF(view_region_free_list,		tp_region *)			/* used by view_arg_convert and op_view/view_dbop */
+THREADGBLDEF(ydb_error_code,			int)				/* Error reflected back to condition handler - it
+										 * is saved here so the ESTABLISHer has access */
 THREADGBLDEF(zdate_form,			int4)				/* Control for default $zdate() format */
 THREADGBLAR1DEF(zintcmd_active,			zintcmd_active_info,	ZINTCMD_LAST)	/* Interrupted timed commands */
 THREADGBLDEF(zro_root,				zro_ent *)			/* Anchor for zroutines structure entry array */
 THREADGBLDEF(zsearch_var,			lv_val *)			/* UNIX $zsearch() lookup variable */
+THREADGBLDEF(ztrap_form,			int4)				/* ztrap type indicator */
 THREADGBLDEF(poll_fds_buffer,			char *)				/* Buffer for poll() argument */
 THREADGBLDEF(poll_fds_buffer_size,		size_t)				/* Current allocated size of poll_fds_buffer */
 THREADGBLDEF(socket_handle_counter,		int)				/* Counter for generated socket handles */
-
+THREADGBLDEF(mu_set_file_noencryptable,		boolean_t)			/* Disabling encryption relaxes encr errors */
 /* Larger structures and char strings */
 THREADGBLAR1DEF(director_string,		char,	SIZEOF(mident_fixed)*2)	/* Buffer for director_ident */
 THREADGBLDEF(fnpca,				fnpc_area)			/* $Piece cache structure area */
@@ -344,7 +369,7 @@ THREADGBLAR1DEF(prombuf,			char,	(MAX_MIDENT_LEN + 1))	/* The prompt buffer size
 										 * commonly used Unicode characters only occupy up
 										 * to 3 bytes, the buffer would at least
 										 * accommodate 10 Unicode characters in a prompt */
-THREADGBLAR1DEF(tmp_object_file_name,		char,	GTM_PATH_MAX)		/* Hold temporary object name across routines */
+THREADGBLAR1DEF(tmp_object_file_name,		char,	YDB_PATH_MAX)		/* Hold temporary object name across routines */
 THREADGBLAR1DEF(tp_restart_failhist_arry,	char,	FAIL_HIST_ARRAY_SIZE)	/* tp_restart dbg storage of restart history */
 #ifdef UNICODE_SUPPORTED
 THREADGBLDEF(utfcgra,				utfcgr_area)			/* Lookaside cache for UTF8 parsing */
@@ -484,6 +509,12 @@ THREADGBLDEF(last_gvquery_key,			gv_key *)	/* Last key returned by $query(gvn). 
 								 * maintained for both forward and reverse $query(gvn)
 								 * This is the gv equivalent of last_fnquery_return_varname et al.
 								 */
+THREADGBLAR1DEF(ydbmsgprefixbuf,		char,	32)	/* The message prefix buffer size is chosen to allow at least
+								 * 8 4-byte unicode characters or 32 ascii characters.
+								 */
+THREADGBLDEF(ydbmsgprefix,			mstr)		/* mstr pointing to msgprefixbuf containing the YDB prompt */
+THREADGBLDEF(trig_forced_unwind,		boolean_t)	/* set/used by "gtm_trigger_fini", "op_unwind" and "unw_mv_ent" */
+
 /* Debug values */
 #ifdef DEBUG
 THREADGBLDEF(LengthReentCnt,			boolean_t)	/* Reentrancy count for GetPieceCountFromPieceCache() used by 2

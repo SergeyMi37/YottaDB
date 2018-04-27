@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -64,8 +67,9 @@
 #include "jobchild_init.h"
 #include "error_trap.h"			/* for ecode_init() prototype */
 #include "zyerror_init.h"
-#include "ztrap_form_init.h"
+#include "trap_env_init.h"
 #include "zdate_form_init.h"
+#include "mstack_size_init.h"
 #include "dollar_system_init.h"
 #include "sig_init.h"
 #include "gtm_startup.h"
@@ -145,7 +149,6 @@ void gtm_startup(struct startup_vector *svec)
 	mstr		log_name;
 	stack_frame 	*frame_pointer_lcl;
 	static char 	other_mode_buf[] = "OTHER";
-	unsigned char	*mstack_ptr;
 	void		gtm_ret_code();
 	DCL_THREADGBL_ACCESS;
 
@@ -161,12 +164,7 @@ void gtm_startup(struct startup_vector *svec)
 	stpgc_ch = &stp_gcol_ch;
 	rtn_fst_table = rtn_names = (rtn_tabent *)svec->rtn_start;
 	rtn_names_end = rtn_names_top = (rtn_tabent *)svec->rtn_end;
-	if (svec->user_stack_size < 4096)
-		svec->user_stack_size = 4096;
-	if (svec->user_stack_size > 8388608)
-		svec->user_stack_size = 8388608;
-	mstack_ptr = (unsigned char *)malloc(svec->user_stack_size);
-	msp = stackbase = mstack_ptr + svec->user_stack_size - mvs_size[MVST_STORIG];
+	mstack_size_init(svec);
 	/* mark the stack base so that if error occur during call-in gtm_init(), the unwind
 	 * logic in gtmci_ch() will get rid of the stack completely
 	 */
@@ -175,8 +173,6 @@ void gtm_startup(struct startup_vector *svec)
 	mv_chain->mv_st_type = MVST_STORIG;	/* Initialize first (anchor) mv_stent so doesn't do anything */
 	mv_chain->mv_st_next = 0;
 	mv_chain->mv_st_cont.mvs_storig = 0;
-	stacktop = mstack_ptr + 2 * mvs_size[MVST_NTAB];
-	stackwarn = stacktop + (16 * 1024);
 	break_message_mask = svec->break_message_mask;
 	if (svec->user_strpl_size < STP_INITSIZE)
 		svec->user_strpl_size = STP_INITSIZE;
@@ -217,6 +213,11 @@ void gtm_startup(struct startup_vector *svec)
 	zcall_init();
 	cmd_qlf.qlf = glb_cmd_qlf.qlf;
 	cache_init();
+	/* Put a base frame on the stack. One assumes this base frame is so there is *something* on the stack in case an error
+	 * or some such gets driven that looks at the stack. Needs to be at least one frame there. However, once we invoke
+	 * gtm_init_env (via jobchild_init()), this frame is no longer reachable since it builds the "real" base frame.
+	 * Note the last sentence does not apply to call-ins or to the simpleapi which do not call gtm_init_env().
+	 */
 	msp -= SIZEOF(stack_frame);
 	frame_pointer_lcl = (stack_frame *)msp;
 	memset(frame_pointer_lcl, 0, SIZEOF(stack_frame));
@@ -262,7 +263,8 @@ void gtm_startup(struct startup_vector *svec)
 	dollar_zstatus.str.addr = NULL;
 	ecode_init();
 	zyerror_init();
-	ztrap_form_init();
+	if (IS_MUMPS_IMAGE)
+		trap_env_init();
 	zdate_form_init(svec);
 	dollar_system_init(svec);
 	init_callin_functable();
@@ -276,7 +278,7 @@ void gtm_startup(struct startup_vector *svec)
 	 * seen alias acitivity so those structures are initialized as well.
 	 */
 	assert(FALSE == curr_symval->alias_activity);
-	curr_symval->alias_activity = TRUE;
+	curr_symval->alias_activity = TRUE;			/* Temporary during lvzwr_init() */
 	lvzwr_init((enum zwr_init_types)0, (mval *)NULL);
 	TREF(in_zwrite) = FALSE;
 	curr_symval->alias_activity = FALSE;

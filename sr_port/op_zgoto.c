@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2011-2015 Fidelity National Information 	*
+ * Copyright (c) 2011-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -25,21 +28,11 @@
 #include "error.h"
 #include "gtmimagename.h"
 #include "linktrc.h"
-#ifdef UNIX
 #include "gtm_unlink_all.h"
-#endif
-#ifdef GTM_TRIGGER
 #include "gtm_trigger_trc.h"
-#endif
-#ifdef VMS
-#include "pdscdef.h"
-#include "proc_desc.h"
-#endif
 
 GBLREF	stack_frame	*frame_pointer;
-#ifdef GTM_TRIGGER
 GBLREF	boolean_t	goframes_unwound_trigger;
-#endif
 
 LITREF	gtmImageName 	gtmImageNames[];
 
@@ -94,7 +87,7 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 		 * is also NULL. In that case, we must be doing an indirect routine name only and the supplied name
 		 * was NULL.
 		 */
-		if (0 == lblname.str.len)
+		if ((0 == lblname.str.len) && !offset)
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_RTNNAME);
 		rtnhdr = frame_pointer->rvector;
 		ARLINK_ONLY(TADR(lnk_proxy)->rtnhdr_adr = rtnhdr);
@@ -114,14 +107,6 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 #		else
 		rtnhdr = op_rhdaddr(&rtnname, NULL);	/* Does an autozlink if necessary */
 #		endif
-#		ifdef VMS
-		if (PDSC_FLAGS == ((proc_desc *)rtnhdr)->flags) /* it's a procedure descriptor, not a routine header */
-		{
-			rtnhdr = (rhdtyp *)(((proc_desc *)rtnhdr)->code_address);
-			/* Make sure this if-test is sufficient to distinguish between procedure descriptors and routine headers */
-			assert(PDSC_FLAGS != ((proc_desc *)rtnhdr)->flags);
-		}
-#		endif
 	}
 	assert(NULL != rtnhdr);
 #	ifdef AUTORELINK_SUPPORTED
@@ -131,14 +116,6 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 	lnrptr = op_labaddr(rtnhdr, &lblname, offset);
 #	endif
 	assert(NULL != lnrptr);
-#	ifdef VMS
-	/* VMS does not support unlink so any level 0 request that passes earlier checks just generates an error
-	 * since the base frame cannot be rewritten as a GTM frame.
-	 */
-	if (0 == level)
-		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_ZGOTOINVLVL2);
-#	endif
-#	ifdef GTM_TRIGGER
 	if (!IS_GTM_IMAGE && (1 >= level))
 		/* In MUPIP (or other utility that gets trigger support in the future), levels 0 and 1 refer to
 		 * the pseudo baseframe and initial stack levels which are not rewritable (in the case where an
@@ -146,8 +123,6 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 		 * permit ZGOTOs to these levels in a utility.
 		 */
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(5) ERR_ZGOTOINVLVL, 3, GTMIMAGENAMETXT(image_type), level);
-#	endif
-#	ifdef UNIX
 	/* One last check if we are unlinking, make sure no call-in frames exist on our stack */
 	if (0 == level)
 	{
@@ -156,19 +131,17 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 			fpprev = fp->old_frame_pointer;
 			if (!(fp->type & SFT_COUNT))
 				continue;
-			if (fp->flags & SFF_CI)
-				/* We have a call-in frame - cannot do unlink */
+			if (fp->type & SFT_CI)
+				/* We have a call-in base frame - cannot do unlink */
 				rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_ZGOCALLOUTIN);
 			if (NULL == fpprev)
 			{	/* Next frame is some sort of base frame */
-#				ifdef GTM_TRIGGER
 				if (fp->type & SFT_TRIGR)
 				{	/* Have a trigger baseframe, pick up stack continuation frame_pointer stored by
 					 *base_frame() */
 					fpprev = *(stack_frame **)(fp + 1);
 					continue;
 				} else
-#				endif
 					break;			/* Some other base frame that stops us */
 			}
 		}
@@ -195,7 +168,6 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 #		endif
 		assert(NULL != lnrptr);
 	} else
-#	endif	/* UNIX */
 	{	/* Unwind to our target level (UNIX if 0 != level  and VMS [all]) */
 		GOLEVEL(level, TRUE);	/* Unwind the trigger base frame if we run into one */
 		assert(level == dollar_zlevel());
@@ -214,7 +186,6 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 	NON_USHBIN_ONLY((* frame_func)(rtnhdr, (unsigned char *)LINKAGE_ADR(rtnhdr),
 		(unsigned char *)((int)rtnhdr + *(int *)((int)rtnhdr + *lnrptr))));
 	DBGEHND((stderr, "op_zgoto: Resuming at frame 0x"lvaddr" with type 0x%04lx\n", frame_pointer, frame_pointer->type));
-#	ifdef GTM_TRIGGER
 	if (goframes_unwound_trigger)
 	{	/* If goframes() called by golevel unwound a trigger base frame, we must use MUM_TSTART to unroll the
 		 * C stack before invoking the return frame. Otherwise we can just return and avoid the overhead that
@@ -222,5 +193,4 @@ void op_zgoto(mval *rtn_name, mval *lbl_name, int offset, int level)
 		 */
 		MUM_TSTART;
 	}
-#	endif
 }

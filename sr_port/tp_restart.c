@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -67,12 +67,7 @@
 #include "caller_id.h"
 #endif
 
-GBLDEF	trans_num		tp_fail_histtn[CDB_MAX_TRIES], tp_fail_bttn[CDB_MAX_TRIES];
-GBLDEF	int4			blkmod_fail_type, blkmod_fail_level;
 GBLDEF	int4			n_pvtmods, n_blkmods;
-GBLDEF	gv_namehead		*tp_fail_hist[CDB_MAX_TRIES];
-GBLDEF	block_id		t_fail_hist_blk[CDB_MAX_TRIES];
-GBLDEF	gd_region		*tp_fail_hist_reg[CDB_MAX_TRIES];
 
 GBLREF	uint4			dollar_tlevel;
 GBLREF	uint4			dollar_trestart;
@@ -91,8 +86,9 @@ GBLREF	sgm_info		*first_sgm_info;
 GBLREF	unsigned int		t_tries;
 GBLREF	int			process_id;
 GBLREF	gd_region		*gv_cur_region;
-GBLREF	jnlpool_addrs		jnlpool;
-GBLREF	bool			caller_id_flag;
+GBLREF	jnlpool_addrs_ptr_t	jnlpool;
+GBLREF	jnlpool_addrs_ptr_t	jnlpool_head;
+GBLREF	boolean_t		caller_id_flag;
 GBLREF	unsigned char		*tpstackbase, *tpstacktop;
 GBLREF	trans_num		local_tn;	/* transaction number for THIS PROCESS */
 GBLREF	sgmnt_addrs		*cs_addrs;
@@ -105,12 +101,13 @@ GBLREF	jnl_gbls_t		jgbl;
 GBLREF	sgmnt_addrs		*cs_addrs_list;
 GBLREF	boolean_t		is_updproc;
 GBLREF	sgmnt_addrs		*reorg_encrypt_restart_csa;
-#ifdef GTM_TRIGGER
 GBLREF	int			tprestart_state;	/* When triggers restart, multiple states possible. See tp_restart.h */
 GBLREF	mval			dollar_ztwormhole;	/* Previous value (mval) restored on restart */
 GBLREF	mval			dollar_ztslate;
+GBLREF	int4			tstart_gtmci_nested_level;
+GBLREF	int			mumps_status;
+
 LITREF	mval			literal_null;
-#endif
 
 error_def(ERR_GVFAILCORE);
 error_def(ERR_REPLONLNRLBK);
@@ -138,9 +135,6 @@ CONDITION_HANDLER(tp_restart_ch)
 	UNWIND(NULL, NULL);
 }
 
-/* Note that adding a new rts_error in "tp_restart" might need a change to the INVOKE_RESTART macro in tp.h and
- * TPRESTART_ARG_CNT in errorsp.h. See comment in tp.h for INVOKE_RESTART macro for the details.
- */
 int tp_restart(int newlevel, boolean_t handle_errors_internally)
 {
 	unsigned char		*cp;
@@ -150,12 +144,13 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 	mv_stent		*mvc;
 	tp_region		*tr;
 	mval			beganHere;
-	sgmnt_addrs		*csa;
+	sgmnt_addrs		*csa, *jpl_csa;
 	int4			num_closed = 0;
 	boolean_t		tp_tend_status;
 	boolean_t		reset_clues_done = FALSE;
 	mstr			gvname_mstr, reg_mstr;
 	gd_region		*restart_reg, *reg;
+	jnlpool_addrs_ptr_t	save_jnlpool, local_jnlpool;
 	int			tprestart_rc, len;
 	gv_namehead		*gvt;
 	enum cdb_sc		status;
@@ -191,11 +186,10 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_TLVLZERO);
 		return 0; /* for the compiler only -- never executed */
 	}
-#	ifdef GTM_TRIGGER
 	DBGTRIGR((stderr, "tp_restart: Entry state: %d\n", tprestart_state));
+	save_jnlpool = jnlpool;
 	if (TPRESTART_STATE_NORMAL == tprestart_state)
 	{	/* Only do if a normal invocation - otherwise we've already done this code for this TP restart */
-#	endif
 		/* Increment restart counts for each region in this transaction */
 		for (tr = tp_reg_list; NULL != tr; tr = tr->fPtr)
 		{
@@ -238,7 +232,7 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 		if (TREF(tprestart_syslog_delta) && (((TREF(tp_restart_count))++ < TREF(tprestart_syslog_first))
 			|| (0 == ((TREF(tp_restart_count) - TREF(tprestart_syslog_first)) % TREF(tprestart_syslog_delta)))))
 		{
-			gvt = tp_fail_hist[t_tries];
+			gvt = TAREF1(tp_fail_hist, t_tries);
 			if (NULL == gvt)
 			{
 				gvname_mstr.addr = (char *)gvname_unknown;
@@ -247,6 +241,17 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			{
 				gvname_mstr.addr = (char *)gvname_dirtree;
 				gvname_mstr.len = gvname_dirtree_len;
+			} else if ((cdb_sc_blkmod != status) || (tp_blkmod_tp_tend == TREF(blkmod_fail_type)))
+			{	/* This is
+				 *   a) NOT a blkmod restart (i.e. a TP_TRACE_HIST call from "tp_tend") OR
+				 *   b) a BLKMOD restart with type tp_blkmod_tp_tend (i.e. a TP_TRACE_HIST_MOD call from "tp_tend")
+				 *      (note that we cannot check TREF(blkmod_fail_type) unless it is a cdb_sc_blkmod).
+				 * In either case, it is a call made from "tp_tend" where "gv_currkey" does not make sense
+				 * as the validation there could have failed for a GDS block corresponding to one or more
+				 * global references that happened in the TP transaction much before the TCOMMIT. All we
+				 * can do is provide the unsubscripted global name of interest in the TPRESTART syslog message.
+				 */
+				gvname_mstr = gvt->gvname.var_name;
 			} else
 			{
 				if (NULL == (end = format_targ_key(buff, MAX_ZWR_KEY_SZ, gv_currkey, TRUE)))
@@ -259,7 +264,7 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			assert(0 == cdb_sc_normal);
 			if (cdb_sc_normal == status)
 				t_fail_hist[t_tries] = '0';	/* temporarily reset just for pretty printing */
-			restart_reg = tp_fail_hist_reg[t_tries];
+			restart_reg = TAREF1(tp_fail_hist_reg, t_tries);
 			if (NULL != restart_reg)
 			{
 				reg_mstr.len = restart_reg->dyn.addr->fname_len;
@@ -280,22 +285,21 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			if (cdb_sc_blkmod != status)
 			{
 				send_msg_csa(CSA_ARG(NULL) VARLSTCNT(18) ERR_TPRESTART, 16, reg_mstr.len, reg_mstr.addr,
-					t_tries + 1, t_fail_hist, t_fail_hist_blk[t_tries], gvname_mstr.len, gvname_mstr.addr,
-					0, 0, 0, tp_blkmod_nomod,
+					t_tries + 1, t_fail_hist, TAREF1(t_fail_hist_blk, t_tries), gvname_mstr.len,
+					gvname_mstr.addr, 0, 0, 0, tp_blkmod_nomod,
 					(NULL != sgm_info_ptr) ? sgm_info_ptr->num_of_blks : 0,
 					(NULL != sgm_info_ptr) ? sgm_info_ptr->cw_set_depth : 0, &local_tn,
 					(TREF(tp_restart_entryref)).str.len, (TREF(tp_restart_entryref)).str.addr);
 			} else
 			{
 				send_msg_csa(CSA_ARG(NULL) VARLSTCNT(18) ERR_TPRESTART, 16, reg_mstr.len, reg_mstr.addr,
-					t_tries + 1, t_fail_hist, t_fail_hist_blk[t_tries], gvname_mstr.len, gvname_mstr.addr,
-					n_pvtmods, n_blkmods, blkmod_fail_level, blkmod_fail_type,
-					sgm_info_ptr->num_of_blks,
-					sgm_info_ptr->cw_set_depth, &local_tn,
+					t_tries + 1, t_fail_hist, TAREF1(t_fail_hist_blk, t_tries), gvname_mstr.len,
+					gvname_mstr.addr, n_pvtmods, n_blkmods, TREF(blkmod_fail_level), TREF(blkmod_fail_type),
+					sgm_info_ptr->num_of_blks, sgm_info_ptr->cw_set_depth, &local_tn,
 					(TREF(tp_restart_entryref)).str.len, (TREF(tp_restart_entryref)).str.addr);
 			}
-			tp_fail_hist_reg[t_tries] = NULL;
-			tp_fail_hist[t_tries] = NULL;
+			TAREF1(tp_fail_hist, t_tries) = NULL;
+			TAREF1(tp_fail_hist_reg, t_tries) = NULL;
 			if ('0' == t_fail_hist[t_tries])
 				t_fail_hist[t_tries] = cdb_sc_normal;	/* get back to where it was */
 			caller_id_flag = TRUE;
@@ -377,17 +381,33 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 								 * before retry */
 					}
 				}
-				DEBUG_ONLY(
+#				ifdef DEBUG
 					/* The journal pool crit lock is currently obtained only inside commit logic at
 					 * which point we will never signal a cdb_sc_needcrit restart code.
 					 * So no need to verify if we need to release crit there. Assert this though.
 					 */
-					if ((NULL != jnlpool.jnlpool_dummy_reg) && jnlpool.jnlpool_dummy_reg->open)
-					{
-						csa = &FILE_INFO(jnlpool.jnlpool_dummy_reg)->s_addrs;
-						assert(!csa->now_crit);
+					if (jnlpool_head)
+					{	/* at least one jnlpool setup */
+						for (tr = tp_reg_list; NULL != tr; tr = tr->fPtr)
+						{
+							reg = tr->reg;
+							if (reg->open)
+							{
+								csa = &FILE_INFO(reg)->s_addrs;
+								assert(csa);
+								assert(jnlpool);
+								if (csa && csa->jnlpool && (csa->jnlpool != jnlpool))
+									jnlpool = csa->jnlpool;
+								if (jnlpool && jnlpool->jnlpool_dummy_reg
+									&& jnlpool->jnlpool_dummy_reg->open)
+								{
+									jpl_csa = &FILE_INFO(jnlpool->jnlpool_dummy_reg)->s_addrs;
+									assert(!jpl_csa->now_crit);
+								}
+							}
+						}
 					}
-				)
+#				endif
 				/* If retry due to M-locks, sleep so needed locks have a chance to get released */
 				break;
 			case cdb_sc_reorg_encrypt:
@@ -463,6 +483,8 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			 * "grab_crit" & "wcs_recover" which will fix the phase2-commit/non-zero-"cr->in_tend" issue.
 			 */
 			case cdb_sc_phase2waitfail:
+			/* cdb_sc_wcs_recover is possible in final retry in TP (see comment in "tp_hist" */
+			case cdb_sc_wcs_recover:
 				assert(IS_FINAL_RETRY_CODE(status));
 				if (CDB_STAGNATE <= t_tries)
 				{
@@ -492,6 +514,8 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 						    || (WBTEST_TP_HIST_CDB_SC_BLKMOD != gtm_white_box_test_case_number))
 					)
 							gtm_fork_n_core();
+					if (save_jnlpool != jnlpool)
+						jnlpool = save_jnlpool;
 					rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_TPFAIL, 2, hist_index, t_fail_hist);
 					return 0; /* for the compiler only -- never executed */
 				} else
@@ -531,7 +555,7 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 					reg = tr->reg;
 					if (!reg->open)
 					{
-						gv_init_reg(reg);
+						gv_init_reg(reg, NULL);
 						assert(reg->open);
 					}
 				}
@@ -583,11 +607,9 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 				}
 			}
 		}
-#	ifdef GTM_TRIGGER
 	} else
 		status = LAST_RESTART_CODE;
 	DBGTRIGR((stderr, "tp_restart: past initial normal state processing\n"));
-#	endif
 	/* The below code to determine the rollback point depends on tp_frame sized blocks being pushed on the TP
 	 * stack. If ever other sized blocks are pushed on, a different method will need to be found.
 	 */
@@ -595,10 +617,8 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 	tf = (tp_frame *)(tpstackbase - SIZEOF(tp_frame));
 	assert(NULL != tf);
 	assert(tpstacktop < (unsigned char *)tf);
-#	ifdef GTM_TRIGGER
 	if (TPRESTART_STATE_NORMAL == tprestart_state)
 	{	/* Only if normal tp_restart call - else we've already done this for this tp_restart */
-#	endif
 		/* Before we get too far unwound here, if this is a nonrestartable transaction,
 		 * let's record where we are for the message later on.
 		 */
@@ -625,14 +645,13 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			default:
 				break;
 		}
-#	ifdef GTM_TRIGGER
 	}
+	assert(tstart_gtmci_nested_level <= TREF(gtmci_nested_level));
 	if (TPRESTART_STATE_TPUNW >= tprestart_state)
 	{	/* Either this is a normal tp_restart call or we ran into a trigger base frame while "tp_unwind"
 		 * was running which required M and C stack unwinding before we could proceed so this call is
 		 * being restarted.
 		 */
-#	endif
 		/* Note that this form of "tp_unwind" will not only unwind the TP stack but also most if not all of
 		 * the M stackframe and mv_stent chain as well.
 		 */
@@ -656,7 +675,6 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			memcpy(extnam_str.addr, (TREF(gv_tporig_extnam_str)).addr, len);
 		}
 		extnam_str.len = len;
-#		ifdef GTM_TRIGGER
 		/* Maintenance of SSF_NORET_VIA_MUMTSTART stack frame flag:
 		 * - Set by gtm_trigger when trigger base frame is created. Purpose to prevent MUM_TSTART from restarting
 		 *   a frame making a call-in to a trigger (flag is checked in MUM_TSTART macro) because the mpc in the
@@ -678,14 +696,11 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			tf->fp->flags &= SSF_NORET_VIA_MUMTSTART_OFF;
 			DBGTRIGR((stderr, "tp_restart: Removing SSF_NORET_VIA_MUMTSTART in frame 0x"lvaddr"\n", tf->fp));
 		}
-#		endif
 		tf->fp->mpc = tf->restart_pc;
 		tf->fp->ctxt = tf->restart_ctxt;
-#		ifdef GTM_TRIGGER
 	} else
 		assert(TPRESTART_STATE_MSTKUNW == tprestart_state);
 	/* From here on, all states run */
-#	endif
 	/* Make sure everything else added to the stack since the transaction started is unwound. Note this loop only
 	 * has work to do if there were NO local vars to restore. Otherwise tp_unwind would have already unwound the
 	 * stack for us.
@@ -693,7 +708,6 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 	GTMTRIG_ONLY(DBGTRIGR((stderr, "tp_restart: beginning frame unwinds (state %d)\n", tprestart_state)));
 	while (frame_pointer < tf->fp)
 	{
-#		ifdef GTM_TRIGGER
 		if (SFT_TRIGR & frame_pointer->type)
 		{	/* We have encountered a trigger base frame. We cannot unroll it because there are C frames
 			 * associated with it so we must interrupt this tp_restart and return to gtm_trigger() so
@@ -704,7 +718,16 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 			DBGTRIGR((stderr, "tp_restart: Encountered trigger base frame in M-stack unwind - rethrowing\n"));
 			INVOKE_RESTART;
 		}
-#		endif
+		/* If we unwound to a call-in base frame, and the outermost TSTART happened before the call-in base frame
+		 * was created, we need to return to ydb_ci[p]() with the ERR_TPRETRY error code so this retry code
+		 * can be bubbled up to the caller of the call-in.
+		 */
+		if ((SFT_CI & frame_pointer->type) && (tstart_gtmci_nested_level != TREF(gtmci_nested_level)))
+		{
+			mumps_status = ERR_TPRETRY;
+			tprestart_state = TPRESTART_STATE_MSTKUNW;
+			MUM_TSTART;
+		}
 		op_unwind();
 	}
 	/* From here on, no further rethrows of tp_restart() - the final finishing touches */
@@ -728,13 +751,11 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 		 msp, mvc, INTCAST((unsigned char *)mvc - msp)));
 	mv_chain = mvc;
 	msp = (unsigned char *)mvc;
-#	ifdef GTM_TRIGGER
 	/* Revert $ZTWormhole to its previous value */
 	DBGTRIGR((stderr, "tp_restart: Restoring $ZTWORMHOLE and NULLifying $ZTSLATE (state %d)\n", tprestart_state));
 	memcpy(&dollar_ztwormhole, &mvc->mv_st_cont.mvs_tp_holder.ztwormhole_save, SIZEOF(mval));
 	if (1 == newlevel)
 		memcpy(&dollar_ztslate, &literal_null, SIZEOF(mval));	/* Zap $ZTSLate at (re)start of lvl 1 transaction */
-#	endif
 	assert(curr_symval == tf->sym);
 	if (frame_pointer->flags & SFF_UNW_SYMVAL)
 	{	/* A symval was popped in THIS stackframe by one of our last mv_stent unwinds which means
@@ -774,6 +795,8 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 		 * be continued if an error handler has a mind to do that.
 		 */
 		GTMTRIG_ONLY(DBGTRIGR((stderr, "tp_restart: Leaving tp_restart via TRESTNOT error - state reset to 0\n")));
+		if (save_jnlpool != jnlpool)
+			jnlpool = save_jnlpool;
 		if (IS_MCODE_RUNNING)
 		{
 			getzposition(&beganHere);
@@ -810,5 +833,7 @@ int tp_restart(int newlevel, boolean_t handle_errors_internally)
 		REVERT;
 	TREF(expand_prev_key) = FALSE; /* in case we did a "t_retry" in the middle of "gvcst_zprevious2" or "gvcst_reversequery2" */
 	GTMTRIG_ONLY(DBGTRIGR((stderr, "tp_restart: completed\n")));
+	if (save_jnlpool != jnlpool)
+		jnlpool = save_jnlpool;
 	return 0;
 }

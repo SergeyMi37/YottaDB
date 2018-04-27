@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -134,6 +137,7 @@
 #define DEFAULT_ZERROR_STR	"Unprocessed $ZERROR, see $ZSTATUS"
 #define DEFAULT_ZERROR_LEN	(SIZEOF(DEFAULT_ZERROR_STR) - 1)
 #include "gtm_libaio.h"
+#include "gtcm.h"
 
 GBLDEF	gd_region		*db_init_region;
 GBLDEF	sgmnt_data_ptr_t	cs_data;
@@ -203,8 +207,8 @@ GBLDEF	int4		backup_close_errno,
 			exit_state,
 			restore_read_errno;
 GBLDEF	volatile int4	outofband, crit_count;
-GBLDEF	int		mumps_status = SS_NORMAL,
-			stp_array_size;
+GBLDEF	int		mumps_status = SS_NORMAL;
+GBLDEF	gtm_uint64_t	stp_array_size;
 GBLDEF	gvzwrite_datablk	*gvzwrite_block;
 GBLDEF	lvzwrite_datablk	*lvzwrite_block;
 GBLDEF	io_log_name	*io_root_log_name;
@@ -218,13 +222,10 @@ GBLDEF MSTR_CONST(default_sysid, "gtm_sysid");
 GBLDEF	mval		dollar_zgbldir,
 			dollar_zsource = DEFINE_MVAL_STRING(MV_STR, 0, 0, 0, NULL, 0, 0),
 			dollar_zstatus,
-			dollar_zstep = DEFINE_MVAL_STRING(MV_STR | MV_NM | MV_INT | MV_NUM_APPROX, 0, 0, 1, "B", 0, 0),
-			dollar_ztrap,
 			ztrap_pop2level = DEFINE_MVAL_STRING(MV_NM | MV_INT, 0, 0, 0, 0, 0, 0),
 			zstep_action,
 			dollar_system,
 			dollar_estack_delta = DEFINE_MVAL_STRING(MV_STR, 0, 0, 0, NULL, 0, 0),
-			dollar_etrap,
 			dollar_zerror = DEFINE_MVAL_STRING(MV_STR, 0, 0, DEFAULT_ZERROR_LEN, DEFAULT_ZERROR_STR, 0, 0),
 			dollar_zyerror,
 			dollar_ztexit = DEFINE_MVAL_STRING(MV_STR, 0, 0, 0, NULL, 0, 0);
@@ -254,7 +255,8 @@ GBLDEF	gvt_container	*gvt_pending_list;	/* list of gvts that need to be re-exami
 GBLDEF	buddy_list	*gvt_pending_buddy_list;/* buddy_list for maintaining memory for gv_targets to be re-examined/allocated */
 GBLDEF	buddy_list	*noisolation_buddy_list;	/* a buddy_list for maintaining the globals that are noisolated */
 GBLDEF	int4		exi_condition;
-GBLDEF	uint4		gtmDebugLevel;
+GBLDEF	uint4		ydbDebugLevel;
+GBLDEF	boolean_t	ydbSystemMalloc;
 GBLDEF	caddr_t		smCallerId;			/* Caller of top level malloc/free */
 GBLDEF	int		process_exiting;
 GBLDEF	int4		dollar_zsystem;
@@ -365,15 +367,13 @@ GBLDEF	int			gv_fillfactor = 100,
 GBLDEF	uint4			update_array_size,
 				cumul_update_array_size;	/* the current total size of the update array */
 GBLDEF	kill_set		*kill_set_tail;
-GBLDEF	boolean_t		pool_init;
+GBLDEF	int			pool_init;
 GBLDEF	boolean_t		is_src_server;
 GBLDEF	boolean_t		is_rcvr_server;
 GBLDEF	jnl_format_buffer	*non_tp_jfb_ptr;
 GBLDEF	boolean_t		dse_running;
-GBLDEF	jnlpool_addrs		jnlpool;
-GBLDEF	jnlpool_ctl_ptr_t	jnlpool_ctl;
-GBLDEF	sm_uc_ptr_t		jnldata_base;
-GBLDEF	int4			jnlpool_shmid = INVALID_SHMID;
+GBLDEF	jnlpool_addrs_ptr_t	jnlpool;
+GBLDEF	jnlpool_addrs_ptr_t	jnlpool_head;
 GBLDEF	recvpool_addrs		recvpool;
 GBLDEF	int			recvpool_shmid = INVALID_SHMID;
 GBLDEF	int			gtmsource_srv_count;
@@ -392,8 +392,6 @@ GBLDEF	fd_set			mutex_wait_on_descs;
 #endif
 GBLDEF	void			(*call_on_signal)();
 GBLDEF	enum gtmImageTypes	image_type;	/* initialized at startup i.e. in dse.c, lke.c, gtm.c, mupip.c, gtmsecshr.c etc. */
-
-GBLDEF	parmblk_struct 		*param_list; /* call-in parameters block (defined in unix/fgncalsp.h)*/
 GBLDEF	unsigned int		invocation_mode = MUMPS_COMPILE; /* how mumps has been invoked */
 GBLDEF	char			cli_err_str[MAX_CLI_ERR_STR] = "";   /* Parse Error message buffer */
 GBLDEF	char			*cli_err_str_ptr;
@@ -419,7 +417,6 @@ GBLDEF	sgmnt_addrs		*kip_csa;
 GBLDEF	boolean_t		need_kip_incr;
 GBLDEF	int			merge_args;
 GBLDEF	merge_glvn_ptr		mglvnp;
-GBLDEF	int			ztrap_form;
 GBLDEF	boolean_t		ztrap_new;
 GBLDEF	int4			wtfini_in_prog;
 #ifdef DEBUG
@@ -890,7 +887,7 @@ GBLDEF	mval		*alias_retarg;			/* Points to an alias return arg created by a "QUI
 							 * that is going to be destroyed.
 							 */
 #ifdef DEBUG_ALIAS
-GBLDEF	boolean_t	lvmon_enabled;			/* Enable lv_val monitoring */
+GBLDEF	boolean_t	lvamon_enabled;			/* Enable lv_val/alias monitoring */
 #endif
 GBLDEF	block_id	gtm_tp_allocation_clue;		/* block# hint to start allocation for created blocks in TP */
 GBLDEF	int4		gtm_zlib_cmp_level;		/* zlib compression level specified at process startup */
@@ -938,6 +935,8 @@ GBLDEF	int		gtm_white_box_test_case_count;
 GBLDEF	int 		gtm_wbox_input_test_case_count; /* VMS allows maximum 31 characters for external identifer */
 GBLDEF	boolean_t	stringpool_unusable;		/* Set to TRUE by any function that does not expect any of its function
 							 * callgraph to use/expand the stringpool. */
+GBLDEF	char		stringpool_unusable_set_at_buf[STRINGPOOL_UNUSABLE_AT_BUFFER_SIZE];
+/* Buffer of WHO last set/unset stringpool usable */
 GBLDEF	boolean_t	stringpool_unexpandable;	/* Set to TRUE by any function for a small period when it has ensured
 							 * enough space in the stringpool so it does not expect any more garbage
 							 * collections or expansions.
@@ -974,8 +973,7 @@ GBLDEF	mval		*dollar_ztdata,
 			*dollar_ztupdate,
 			*dollar_ztvalue,
 			dollar_ztwormhole = DEFINE_MVAL_STRING(MV_STR, 0, 0, 0, NULL, 0, 0),
-			dollar_ztslate = DEFINE_MVAL_STRING(MV_STR, 0, 0, 0, NULL, 0, 0),
-			gtm_trigger_etrap;  		/* Holds $ETRAP value for inside trigger */
+			dollar_ztslate = DEFINE_MVAL_STRING(MV_STR, 0, 0, 0, NULL, 0, 0);
 GBLDEF	int		tprestart_state;		/* When triggers restart, multiple states possible. See tp_restart.h */
 GBLDEF	boolean_t	skip_INVOKE_RESTART;		/* set to TRUE if caller of op_tcommit/t_retry does not want it to
 							 * use the INVOKE_RESTART macro (which uses an rts_error to trigger
@@ -1064,14 +1062,17 @@ GBLDEF	boolean_t	jnlpool_init_needed;		/* TRUE if jnlpool_init should be done at
 							 * anticipatory freeze supported configurations). The variable is set
 							 * explicitly by interested commands (eg., MUPIP REORG).
 							 */
+GBLDEF	char		repl_instfilename[MAX_FN_LEN + 1];	/* save first instance */
+GBLDEF	char		repl_inst_name[MAX_INSTNAME_LEN];	/* for syslog */
+GBLDEF	gd_addr		*repl_inst_from_gld;		/* if above obtained from directory */
 GBLDEF	boolean_t	span_nodes_disallowed; 		/* Indicates whether spanning nodes are not allowed. For example,
 							 * they are not allowed for GT.CM OMI and GNP. */
 GBLDEF	boolean_t	argumentless_rundown;
 GBLDEF	is_anticipatory_freeze_needed_t		is_anticipatory_freeze_needed_fnptr;
 GBLDEF	set_anticipatory_freeze_t		set_anticipatory_freeze_fnptr;
 GBLDEF	boolean_t	is_jnlpool_creator;
-GBLDEF	char		gtm_dist[GTM_PATH_MAX];		/* Value of $gtm_dist env variable */
-GBLDEF	boolean_t	gtm_dist_ok_to_use = FALSE;		/* Whether or not we can use $gtm_dist */
+GBLDEF	char		ydb_dist[YDB_PATH_MAX];		/* Value of $ydb_dist env variable */
+GBLDEF	boolean_t	ydb_dist_ok_to_use = FALSE;		/* Whether or not we can use $ydb_dist */
 GBLDEF	semid_queue_elem	*keep_semids;		/* Access semaphores that should be kept because shared memory is up */
 GBLDEF	boolean_t		dmterm_default;		/* Retain default line terminators in the direct mode */
 GBLDEF	boolean_t	in_jnl_file_autoswitch;		/* Set to TRUE for a short window inside jnl_file_extend when we are about
@@ -1186,4 +1187,43 @@ GBLDEF	char		io_setup_errstr[IO_SETUP_ERRSTR_ARRAYSIZE];
 #endif
 GBLDEF	void		(*mupip_exit_fp)(int4 errnum);	/* Function pointer to mupip_exit() in MUPIP but points to a routine
 							 * that assert fails if run from non-MUPIP builds.
+							 */
+GBLDEF	CLI_ENTRY	*cmd_ary;	/* Pointer to command table for MUMPS/DSE/LKE etc. */
+
+/* Begin -- GT.CM OMI related global variables */
+GBLDEF	bool		neterr_pending;
+GBLDEF	int4		omi_bsent = 0;
+GBLDEF	int		psock = -1;		/* pinging socket */
+GBLDEF	short		gtcm_ast_avail;
+GBLDEF	int4		gtcm_exi_condition;
+GBLDEF	char		*omi_service = (char *)0;
+GBLDEF	FILE		*omi_debug   = (FILE *)0;
+GBLDEF	char		*omi_pklog   = (char *)0;
+GBLDEF	char		*omi_pklog_addr = (char *)0;
+GBLDEF	int		omi_pkdbg   = 0;
+GBLDEF	omi_conn_ll	*omi_conns   = (omi_conn_ll *)0;
+GBLDEF	int		omi_exitp   = 0;
+GBLDEF	int		omi_pid     = 0;
+GBLDEF	int4		omi_errno   = 0;
+GBLDEF	int4		omi_nxact   = 0;
+GBLDEF	int4		omi_nxact2  = 0;
+GBLDEF	int4		omi_nerrs   = 0;
+GBLDEF	int4		omi_brecv   = 0;
+GBLDEF	int4		gtcm_stime  = 0;  /* start time for GT.CM */
+GBLDEF	int4		gtcm_ltime  = 0;  /* last time stats were gathered */
+GBLDEF	int		one_conn_per_inaddr = 0;
+GBLDEF	int		authenticate = 0;   /* authenticate OMI connections */
+GBLDEF	int		ping_keepalive = 0; /* check connections using ping */
+GBLDEF	int		conn_timeout = TIMEOUT_INTERVAL;
+GBLDEF	int		history = 0;
+/* image_id....allows you to determine info about the server by using the strings command, or running dbx */
+GBLDEF	char		image_id[256]= "image_id";
+/* End -- GT.CM OMI related global variables */
+
+GBLDEF	int		ydb_repl_filter_timeout;	/* # of seconds that source server waits before issuing FILTERTIMEDOUT
+							 * error if it sees no response from the external filter program.
+							 */
+GBLDEF	int4		tstart_gtmci_nested_level;	/* TREF(gtmci_nested_level) at the time of the outermost "op_tstart"
+							 * This should be used only if dollar_tlevel is non-zero as it is not
+							 * otherwise maintained.
 							 */

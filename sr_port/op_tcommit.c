@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -64,6 +67,8 @@
 #include "wcs_timer_start.h"
 #include "mupipbckup.h"
 #include "gvcst_protos.h"
+#include "repl_msg.h"			/* for gtmsource.h */
+#include "gtmsource.h"			/* for jnlpool_addrs_ptr_t */
 
 #include "db_snapshot.h"
 
@@ -102,9 +107,11 @@ GBLREF	boolean_t		skip_INVOKE_RESTART;
 GBLREF	int4			gtm_trigger_depth;
 GBLREF	int4			tstart_trigger_depth;
 #endif
+GBLREF	int4			tstart_gtmci_nested_level;
 #ifdef DEBUG
 GBLREF	boolean_t		forw_recov_lgtrig_only;
 #endif
+GBLREF	jnlpool_addrs_ptr_t	jnlpool;
 
 error_def(ERR_GBLOFLOW);
 error_def(ERR_GVIS);
@@ -203,6 +210,7 @@ enum cdb_sc	op_tcommit(void)
 						    * This is used to read before-images of blocks whose cs->mode is gds_t_create */
 	unsigned int		bsiz;
 	gd_region		*save_cur_region;	/* saved copy of gv_cur_region before TP_CHANGE_REG modifies it */
+	jnlpool_addrs_ptr_t	save_jnlpool;
 	boolean_t		before_image_needed;
 	boolean_t		skip_invoke_restart;
 #	ifdef DEBUG
@@ -230,6 +238,7 @@ enum cdb_sc	op_tcommit(void)
 	 */
 	assert(tstart_trigger_depth <= gtm_trigger_depth);
 #	endif
+	assert(tstart_gtmci_nested_level <= TREF(gtmci_nested_level));
 	if (1 == dollar_tlevel)		/* real commit */
 	{
 #		ifdef GTM_TRIGGER
@@ -243,6 +252,9 @@ enum cdb_sc	op_tcommit(void)
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_TRIGTCOMMIT, 2, gtm_trigger_depth,
 					tstart_trigger_depth);
 		}
+		if (tstart_gtmci_nested_level != TREF(gtmci_nested_level))
+			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_CALLINTCOMMIT, 2,
+					TREF(gtmci_nested_level), tstart_gtmci_nested_level);
 		if (tp_pointer->cannot_commit)
 		{	/* If this TP transaction was implicit, any unhandled error when crossing the trigger boundary
 			 * would have caused a rethrow of the error in the M frame that held the non-TP update which
@@ -254,6 +266,7 @@ enum cdb_sc	op_tcommit(void)
 		}
 #		endif
 		save_cur_region = gv_cur_region;
+		save_jnlpool = jnlpool;
 #		ifdef DEBUG
 		/* With jgbl.forw_phase_recovery, it is possible gv_currkey is non-NULL and gv_target is NULL
 		 * (due to a MUR_CHANGE_REG) so do not invoke the below macro in that case.
@@ -564,6 +577,7 @@ enum cdb_sc	op_tcommit(void)
 		tp_clean_up(TP_COMMIT);
 		gv_cur_region = save_cur_region;
 		TP_CHANGE_REG(gv_cur_region);
+		jnlpool = save_jnlpool;
 #		ifdef DEBUG
 		/* See comment in similar code before tp_tend call above */
 		if (!forw_recov_lgtrig_only && (!jgbl.forw_phase_recovery || (NULL != gv_target)))

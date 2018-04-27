@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -43,9 +46,9 @@
 
 #define	ITERATIONS_100K	100000
 
-GBLREF	jnlpool_addrs	jnlpool;
-GBLREF	uint4		process_id;
-GBLREF	uint4		image_count;
+GBLREF	jnlpool_addrs_ptr_t	jnlpool;
+GBLREF	uint4			process_id;
+GBLREF	uint4			image_count;
 
 error_def(ERR_JNLACCESS);
 error_def(ERR_JNLCNTRL);
@@ -117,7 +120,7 @@ static uint4 jnl_sub_write_attempt(jnl_private_control *jpc, unsigned int *lcnt,
 			{	/* no one home, clear the semaphore; */
 				BG_TRACE_PRO_ANY(csa, jnl_blocked_writer_lost);
 				jnl_send_oper(jpc, ERR_JNLQIOSALVAGE);
-				COMPSWAP_UNLOCK(&jb->io_in_prog_latch, writer, jb->image_count, LOCK_AVAILABLE, 0);
+				COMPSWAP_UNLOCK(&jb->io_in_prog_latch, writer, LOCK_AVAILABLE);
 				if (!was_crit)
 					rel_crit(jpc->region);
 				*lcnt = 1;
@@ -139,30 +142,11 @@ static uint4 jnl_sub_write_attempt(jnl_private_control *jpc, unsigned int *lcnt,
 		}
 		break;
 	}
-	/* Note: If phase2 jnl commits are still in progress outside of crit, we cannot accurately compare "jb->free" vs
-	 * "jb->freeaddr" (because a phase2 commit could be updating them as part of the UPDATE_JBP_RSRV_FREEADDR macro).
-	 * "jb->phase2_commit_index1 == jb->phase2_commit_index2" indicates no phase2 commits are in progress.
-	 * In that case, go ahead with the free/freeaddr check.
-	 */
-	rsrv_freeaddr = jb->rsrv_freeaddr;
-	dskaddr = jb->dskaddr;
-	phase2_commit_index1 = jb->phase2_commit_index1;
-	SHM_READ_MEMORY_BARRIER;	/* See "jnl_phase2_cleanup" for comment & corresponding SHM_WRITE_MEMORY_BARRIER */
-	freeaddr = jb->freeaddr;
-	free = jb->free;
-	if ((threshold > rsrv_freeaddr)
-		|| (csa->now_crit
-			&& ((dskaddr > freeaddr)
-				|| ((phase2_commit_index1 == jb->phase2_commit_index2) && ((free != (freeaddr % jb->size)))))))
-	{	/* threshold > jb->rsrv_freeaddr => somebody decremented jb->freeaddr after we computed threshold,
-		 *	OR jnl was switched (in which case we should not be holding crit)
-		 * jb->free != jb->freeaddr % jb->size => out of design condition
-		 * jb->dskaddr > jb->freeaddr => out of design condition, or jnl was switched (again we should not be in crit)
+	if (csa->now_crit && (jb->dskaddr > jb->freeaddr))
+	{	/* jb->dskaddr > jb->freeaddr => out of design condition if we have crit.
+		 * If we don't have crit, a journal switch could have occurred, so not an error condition.
 		 */
 		status = ERR_JNLCNTRL;
-		assert((dskaddr > freeaddr) && gtm_white_box_test_case_enabled
-				&& (WBTEST_JNL_FILE_LOST_DSKADDR == gtm_white_box_test_case_number)
-			|| (JNL_FILE_SWITCHED(jpc) && !was_crit));
 	}
 	return status;
 }
@@ -173,6 +157,7 @@ uint4 jnl_write_attempt(jnl_private_control *jpc, uint4 threshold)
 	uint4			prev_freeaddr;
 	unsigned int		lcnt, prev_lcnt, cnt;
 	sgmnt_addrs		*csa;
+	jnlpool_addrs_ptr_t	save_jnlpool;
 	unsigned int		status;
 	boolean_t		was_crit, jnlfile_lost, exact_check;
 	DCL_THREADGBL_ACCESS;
@@ -180,6 +165,9 @@ uint4 jnl_write_attempt(jnl_private_control *jpc, uint4 threshold)
 	SETUP_THREADGBL_ACCESS;
 	jb = jpc->jnl_buff;
 	csa = &FILE_INFO(jpc->region)->s_addrs;
+	save_jnlpool = jnlpool;
+	if (csa->jnlpool && (csa->jnlpool != jnlpool))
+		jnlpool = csa->jnlpool;
 	was_crit = csa->now_crit;
 
 	/* If holding crit and input threshold matches jb->rsrv_freeaddr, then we need to wait in the loop as long as dskaddr
@@ -236,6 +224,8 @@ uint4 jnl_write_attempt(jnl_private_control *jpc, uint4 threshold)
 			 * turned OFF (due to disk space issues etc.)
 			 */
 			jpc->status = SS_NORMAL;
+			if (save_jnlpool != jnlpool)
+				jnlpool = save_jnlpool;
 			return SS_NORMAL;
 		}
 		if (SS_NORMAL == status)
@@ -281,14 +271,21 @@ uint4 jnl_write_attempt(jnl_private_control *jpc, uint4 threshold)
 			if (!jnlfile_lost)
 				continue;
 			else
+			{
+				if (save_jnlpool != jnlpool)
+					jnlpool = save_jnlpool;
 				return status;
+			}
 		}
-		if ((ERR_JNLWRTDEFER == status) && IS_REPL_INST_FROZEN)
-		{	/* Check if the write was deferred because the instance is frozen.
-			 * In that case, wait until the freeze is lifted instead of wasting time spinning on the latch
-			 * in jnl_qio.
-			 */
-			 WAIT_FOR_REPL_INST_UNFREEZE(csa);
+		if (ERR_JNLWRTDEFER == status)
+		{
+			if (DBG_ASSERT(!csa->jnlpool || (csa->jnlpool == jnlpool)) IS_REPL_INST_FROZEN_JPL(csa->jnlpool))
+			{	/* Check if the write was deferred because the instance is frozen.
+				 * In that case, wait until the freeze is lifted instead of wasting time spinning on the latch
+				* in jnl_qio.
+				*/
+				WAIT_FOR_REPL_INST_UNFREEZE(csa);
+			}
 		}
 		if ((ERR_JNLWRTDEFER != status) && (ERR_JNLWRTNOWWRTR != status) && (ERR_JNLPROCSTUCK != status))
 		{	/* If holding crit, then jnl_sub_write_attempt would have invoked jnl_file_lost which would have
@@ -314,5 +311,7 @@ uint4 jnl_write_attempt(jnl_private_control *jpc, uint4 threshold)
 			}
 		}
 	}
+	if (save_jnlpool != jnlpool)
+		jnlpool = save_jnlpool;
 	return SS_NORMAL;
 }

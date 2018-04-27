@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -29,7 +32,7 @@
 #include "mlk_unlock.h"
 #include "mlk_unpend.h"
 #include "outofband.h"
-#include "lk_check_own.h"
+#include "mlk_check_own.h"
 #include "lock_str_to_buff.h"
 #include "gvcmx.h"
 #include "gvcmz.h"
@@ -60,6 +63,7 @@
 #include "lockdefs.h"
 #include "is_proc_alive.h"
 #include "mvalconv.h"
+#include "min_max.h"
 #ifdef DEBUG
 #include "have_crit.h"		/* for the TPNOTACID_CHECK macro */
 #endif
@@ -131,7 +135,7 @@ STATICFNDCL void tp_warning(mlk_pvtblk *pvt_ptr)
  *	the $T variable by the caller if timeout is specified.
  * -----------------------------------------------
  */
-int	op_lock2(mval *timeout, unsigned char laflag)	/* timeout is in milliseconds */
+int	op_lock2(mval *timeout, unsigned char laflag)	/* timeout is in seconds */
 {
 	boolean_t		blocked, timer_on;
 	signed char		gotit;
@@ -286,7 +290,7 @@ int	op_lock2(mval *timeout, unsigned char laflag)	/* timeout is in milliseconds 
 		{
 			if (out_of_time || outofband)
 			{	/* if time expired || control-c, tptimeout, or jobinterrupt encountered */
-				if (outofband || !lk_check_own(pvt_ptr1))
+				if (outofband || !mlk_check_own(pvt_ptr1))
 				{	/* If CTL-C, check lock owner */
 					if (pvt_ptr1->nodptr)		/* Get off pending list to be sent a wake */
 						mlk_unpend(pvt_ptr1);
@@ -377,7 +381,7 @@ int	op_lock2(mval *timeout, unsigned char laflag)	/* timeout is in milliseconds 
 				break;
 			}
 			if (pvt_ptr1->nodptr)
-				lk_check_own(pvt_ptr1);		/* clear an abandoned owner */
+				mlk_check_own(pvt_ptr1);		/* clear an abandoned owner */
 		}
 		if (blocked && out_of_time)
 			break;

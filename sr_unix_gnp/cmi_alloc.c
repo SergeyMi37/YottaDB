@@ -1,6 +1,10 @@
 /****************************************************************
  *								*
- *	Copyright 2001, 2009 Fidelity Information Services, Inc	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
+ * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -21,6 +25,7 @@ void cmi_free_clb(struct CLB *lnk)
 	struct NTD *tsk;
 	int rc;
 
+	ASSERT_IS_LIBCMISOCKETTCP;
 	if (!lnk)
 		return;
 	tsk = lnk->ntd;
@@ -37,6 +42,7 @@ struct CLB *cmi_alloc_clb(void)
 	struct CLB *lnk;
 	que_ent_ptr_t qp;
 
+	ASSERT_IS_LIBCMISOCKETTCP;
 	if (ntd_root && ntd_root->pool_size)
 	{
 		/* server path */
@@ -45,7 +51,8 @@ struct CLB *cmi_alloc_clb(void)
 		{
 			lnk = QUEENT2CLB(qp, cqe);
 			ntd_root->free_count--;
-		}
+		} else
+			lnk = NULL;	/* 4SCA: Garbage return value */
 	}
 	else
 	{
@@ -58,7 +65,7 @@ struct CLB *cmi_alloc_clb(void)
 
 unsigned char *cmi_realloc_mbf(struct CLB *lnk, size_t new_size)
 {
-
+	ASSERT_IS_LIBCMISOCKETTCP;
 	if (lnk->mbf)
 	{
 		lnk->mbl = 0;

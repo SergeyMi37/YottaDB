@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -114,10 +117,10 @@ MBSTART {								\
 } MBEND
 
 GBLREF	gd_region		*gv_cur_region;
-GBLREF	jnlpool_addrs		jnlpool;
+GBLREF	jnlpool_addrs_ptr_t	jnlpool;
 GBLREF	sgmnt_addrs		*cs_addrs;
 GBLREF	sgmnt_data_ptr_t	cs_data;
-GBLREF	uint4			gtmDebugLevel;
+GBLREF	uint4			ydbDebugLevel;
 #ifdef DEBUG
 GBLREF	boolean_t		in_mu_cre_file;
 #endif
@@ -264,6 +267,7 @@ unsigned char mu_cre_file(void)
 		return EXIT_ERR;
 	}
 	seg = gv_cur_region->dyn.addr;
+	seg->read_only = FALSE;
 	if (seg->asyncio)
 	{	/* AIO = ON, implies we need to use O_DIRECT. Check for db vs fs blksize alignment issues. */
 		fsb_size = get_fs_block_size(mu_cre_file_fd);
@@ -284,7 +288,7 @@ unsigned char mu_cre_file(void)
 				* ((DIVIDE_ROUND_UP(EXTEND_WARNING_FACTOR * (gtm_uint64_t)seg->ext_blk_count,
 						    BLKS_PER_LMAP - 1))
 				   + EXTEND_WARNING_FACTOR * (gtm_uint64_t)seg->ext_blk_count));
-	if (!(gtmDebugLevel & GDL_IgnoreAvailSpace))
+	if (!(ydbDebugLevel & GDL_IgnoreAvailSpace))
 	{	/* Bypass this space check if debug flag above is on. Allows us to create a large sparse DB
 		 * in space it could never fit it if wasn't sparse. Needed for some tests.
 		 * Also, if the anticipatory freeze scheme is in effect at this point, we would have issued
@@ -294,7 +298,7 @@ unsigned char mu_cre_file(void)
 		 * to do the warning transformation in this case. The only exception to this is a statsdb
 		 * which is anyways not journaled so need not worry about INST_FREEZE_ON_ERROR_ENABLED.
 		 */
-		assert((NULL == jnlpool.jnlpool_ctl) || IS_AUTODB_REG(gv_cur_region));
+		assert(((NULL == jnlpool) || (NULL == jnlpool->jnlpool_ctl)) || IS_AUTODB_REG(gv_cur_region));
 		if (avail_blocks < blocks_for_create)
 		{
 			PUTMSG_ERROR_CSA(cs_addrs, 6, ERR_NOSPACECRE, 4, LEN_AND_STR(path), &blocks_for_create, &avail_blocks);

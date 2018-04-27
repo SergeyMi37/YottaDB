@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -32,6 +35,8 @@
 #include "op.h"
 #include "jobinterrupt_process.h"
 #include "gvcst_protos.h"
+#include "repl_msg.h"			/* for gtmsource.h */
+#include "gtmsource.h"			/* for jnlpool_addrs_ptr_t */
 
 GBLREF	uint4			dollar_tlevel;
 GBLREF	uint4			dollar_trestart;
@@ -40,6 +45,7 @@ GBLREF	gv_namehead		*gv_target;
 GBLREF	gd_addr			*gd_header;
 GBLREF	tp_region		*tp_reg_list;	/* Chained list of regions used in this transaction not cleared on tp_restart */
 GBLREF	gd_region		*gv_cur_region;
+GBLREF	jnlpool_addrs_ptr_t	jnlpool;
 GBLREF	sgmnt_data_ptr_t	cs_data;
 GBLREF	sgmnt_addrs		*cs_addrs;
 GBLREF	void			(*tp_timeout_clear_ptr)(void);
@@ -54,6 +60,7 @@ GBLREF	unsigned char		*tpstackbase, *tpstacktop;
 #endif
 GBLREF	boolean_t		implicit_trollback;
 GBLREF	tp_frame		*tp_pointer;
+GBLREF	int4			tstart_gtmci_nested_level;
 
 error_def(ERR_TLVLZERO);
 error_def(ERR_TROLLBK2DEEP);
@@ -63,6 +70,7 @@ error_def(ERR_INVROLLBKLVL);
 {									\
 	gv_cur_region = save_cur_region;				\
 	TP_CHANGE_REG(gv_cur_region);					\
+	jnlpool = save_jnlpool;						\
 }
 
 void	op_trollback(int rb_levels)		/* rb_levels -> # of transaction levels by which we need to rollback : BYPASSOK */
@@ -70,6 +78,7 @@ void	op_trollback(int rb_levels)		/* rb_levels -> # of transaction levels by whi
 	boolean_t	lcl_implicit_trollback = FALSE, reg_reset;
 	uint4		newlevel;
 	gd_region	*save_cur_region;	/* saved copy of gv_cur_region before tp_clean_up/tp_incr_clean_up modifies it */
+	jnlpool_addrs_ptr_t	save_jnlpool;
 	gd_region	*curreg;
 	gv_key		*gv_orig_key_ptr;
 	sgmnt_addrs	*csa;
@@ -98,9 +107,14 @@ void	op_trollback(int rb_levels)		/* rb_levels -> # of transaction levels by whi
 	newlevel = (0 > rb_levels) ? dollar_tlevel + rb_levels : rb_levels;
 	DBG_CHECK_GVTARGET_GVCURRKEY_IN_SYNC(CHECK_CSA_TRUE);
 	save_cur_region = gv_cur_region;
+	save_jnlpool = jnlpool;
 	GTMTRIG_ONLY(assert(tstart_trigger_depth <= gtm_trigger_depth);) /* see similar assert in op_tcommit.c for why */
+	assert(tstart_gtmci_nested_level <= TREF(gtmci_nested_level));
 	if (!newlevel)
 	{
+		if (tstart_gtmci_nested_level != TREF(gtmci_nested_level))
+			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_CALLINTROLLBACK, 2,
+					TREF(gtmci_nested_level), tstart_gtmci_nested_level);
 		(*tp_timeout_clear_ptr)();	/* Cancel or clear any pending TP timeout */
 		/* Do a rollback type cleanup (invalidate gv_target clues of read as well as
 		 * updated blocks). This is typically needed for a restart.
@@ -117,7 +131,7 @@ void	op_trollback(int rb_levels)		/* rb_levels -> # of transaction levels by whi
 				rel_crit(curreg);			/* release any crit regions */
 		}
 		reg_reset = FALSE;
-		if (!process_exiting && lcl_implicit_trollback && tp_pointer->implicit_tstart)
+		if (!process_exiting && lcl_implicit_trollback && tp_pointer->implicit_tstart && !tp_pointer->ydb_tp_s_tstart)
 		{	/* This is an implicit TROLLBACK of an implicit TSTART started for a non-tp explicit update.
 			 * gv_currkey needs to be restored to the value it was at the beginning of the implicit TSTART.
 			 * This is necessary so as to maintain $reference accurately (to user-visible global name) in case

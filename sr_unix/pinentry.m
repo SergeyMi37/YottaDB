@@ -3,6 +3,9 @@
 ; Copyright (c) 2010-2017 Fidelity National Information		;
 ; Services, Inc. and/or its subsidiaries. All rights reserved.	;
 ;								;
+; Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	;
+; All rights reserved.						;
+;								;
 ;	This source code contains the intellectual property	;
 ;	of its copyright holder(s), and is made available	;
 ;	under a license.  If you do not know the terms of	;
@@ -36,18 +39,20 @@ pinentry; Custom pinentry that returns an unobfuscated password if $gtm_passwd i
 	. write "D "
 	. write clrpwds,!
 	. write "OK",!
+	. set $etrap="zgoto 0"
 	. zhalt 0
 	; Since this routine only responds to GETPIN, issue an error if it did not receive that command,
 	; letting pinentry-gtm.sh execute the default pinentry
+	set $etrap="zgoto 0"
 	zhalt 1
 
 	; The error handler's primary function is to exit with error status so that the calling pinentry-gtm.sh
 	; can execute the default pinentry program. If $gtm_pinentry_log is defined, the routine will dump all
 	; status. Note that the locals are all killed prior to dumping status
 error	kill
-	new $etrap set $etrap="zhalt +$zstatus"
+	new $etrap set $etrap="set $etrap=""zgoto 0"" zhalt +$zstatus"
 	new i,info
-	set errmsg="%GTM-E-PINENTRYERR, Custom pinentry program failure. "_$zstatus_"; from "_$zdirectory
+	set errmsg="%YDB-E-PINENTRYERR, Custom pinentry program failure. "_$zstatus_"; from "_$zdirectory
 	if $zsyslog(errmsg)
 	set pinlog=$ztrnlnm("gtm_pinentry_log")
 	if $zlength(pinlog) do
@@ -61,5 +66,6 @@ error	kill
 	. write !,"Loaded external calls:",! zshow "C"
 	. write "Device parameters:",! zshow "D"
 	. close pinlog
+	set $etrap="zgoto 0"
 	zhalt +$zstatus
 	quit

@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2009-2017 Fidelity National Information	*
+ * Copyright (c) 2009-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -103,7 +106,7 @@
 }
 
 STATICDEF int					n_keys;					/* Count of how many keys were loaded. */
-STATICDEF char					gc_config_filename[GTM_PATH_MAX];	/* Path to the configuration file. */
+STATICDEF char					gc_config_filename[YDB_PATH_MAX];	/* Path to the configuration file. */
 STATICDEF gtm_keystore_hash_link_t		*keystore_by_hash_head = NULL;		/* Root of the binary search tree to look
 											 * keys up by hash. */
 STATICDEF gtm_keystore_keyname_link_t		*keystore_by_keyname_head = NULL;	/* Root of the binary search tree to look
@@ -113,7 +116,7 @@ STATICDEF gtm_keystore_keypath_link_t		*keystore_by_keypath_head = NULL;	/* Root
 STATICDEF gtm_keystore_unres_key_link_t		*keystore_by_unres_key_head = NULL;	/* Head of the linked list holding keys of
 											 * DBs with presently unresolved paths. */
 STATICDEF config_t				gtmcrypt_cfg;				/* Encryption configuration. */
-STATICDEF char					path_array[GTM_PATH_MAX];		/* Array for temporary storage of keys or
+STATICDEF char					path_array[YDB_PATH_MAX];		/* Array for temporary storage of keys or
 											 * DBs' real path information. */
 STATICDEF unsigned char				key_hash_array[GTMCRYPT_HASH_LEN];	/* Array for temporary storage of keys'
 											 * hashes. */
@@ -178,8 +181,8 @@ int gtmcrypt_getkey_by_keyname(char *key_name, char *key_path, gtm_keystore_t **
  */
 int gtmcrypt_getkey_by_hash(unsigned char *hash, char *db_path, gtm_keystore_t **entry)
 {
-	int	err_caused_by_gpg, error;
-	char	save_err[MAX_GTMCRYPT_ERR_STRLEN], hex_buff[GTMCRYPT_HASH_HEX_LEN + 1];
+	int	err_caused_by_gpg, error, errorlen;
+	char	save_err[MAX_GTMCRYPT_ERR_STRLEN + 1], hex_buff[GTMCRYPT_HASH_HEX_LEN + 1];
 	char	*alert_msg;
 
 	if (NULL != db_path)
@@ -201,7 +204,11 @@ int gtmcrypt_getkey_by_hash(unsigned char *hash, char *db_path, gtm_keystore_t *
 				GC_HEX(hash, hex_buff, GTMCRYPT_HASH_HEX_LEN);
 				if (err_caused_by_gpg)
 				{
-					strncpy(save_err, gtmcrypt_err_string, MAX_GTMCRYPT_ERR_STRLEN);
+					errorlen = STRLEN(gtmcrypt_err_string);
+					if (MAX_GTMCRYPT_ERR_STRLEN < errorlen)
+						errorlen = MAX_GTMCRYPT_ERR_STRLEN;
+					strncpy(save_err, gtmcrypt_err_string, errorlen);
+					save_err[errorlen] = '\0';
 					UPDATE_ERROR_STRING("Expected hash - " STR_ARG " - %s. %s",
 						ELLIPSIZE(hex_buff), save_err, alert_msg);
 				} else
@@ -306,7 +313,7 @@ STATICFNDEF gtm_keystore_t *keystore_lookup_by_keyname_plus(char *keyname, char 
 	int				diff, match;
 	gtm_keystore_keyname_link_t 	*cur_node;
 	char				*ynew_ext;
-	char				lcl_keyname[GTM_PATH_MAX];
+	char				lcl_keyname[YDB_PATH_MAX];
 	int				keynamelen;
 
 	assert((SEARCH_BY_KEYPATH == search_type) || (SEARCH_BY_HASH == search_type));
@@ -315,7 +322,7 @@ STATICFNDEF gtm_keystore_t *keystore_lookup_by_keyname_plus(char *keyname, char 
 	/* Strip off EXT_NEW from autodb paths so that the key lookup works correctly */
 	keynamelen = strlen(keyname);
 	ynew_ext = keyname + keynamelen - STRLEN(EXT_NEW);
-	if (0 == strcmp(ynew_ext, EXT_NEW))
+	if ((ynew_ext >= keyname) && (0 == strcmp(ynew_ext, EXT_NEW)))
 	{	/* This is an autodb, fixup the path */
 		strncpy(lcl_keyname, keyname, keynamelen - STRLEN(EXT_NEW));
 		lcl_keyname[keynamelen - STRLEN(EXT_NEW)] = '\0';
@@ -367,8 +374,8 @@ STATICFNDEF gtm_keystore_t *keystore_lookup_by_unres_key(char *search_field1, in
 	gtm_keystore_t			*node;
 	int				name_length, path_length, search_fail;
 	char				*name_search_field_ptr, *path_search_field_ptr, *ynew_ext;
-	char				*lcl_key_name, lcl_key_name_buff[GTM_PATH_MAX];
-	char				name_search_field_buff[GTM_PATH_MAX];
+	char				*lcl_key_name, lcl_key_name_buff[YDB_PATH_MAX];
+	char				name_search_field_buff[YDB_PATH_MAX];
 	int				search_field_len;
 	int				isautodb;
 
@@ -415,7 +422,7 @@ STATICFNDEF gtm_keystore_t *keystore_lookup_by_unres_key(char *search_field1, in
 			{
 				if (isautodb)
 				{	/* Append EXT_NEW to see if this a matching AutoDB */
-					strncpy(lcl_key_name_buff, curr->key_name, GTM_PATH_MAX);
+					strncpy(lcl_key_name_buff, curr->key_name, YDB_PATH_MAX);
 					strcat(lcl_key_name_buff, EXT_NEW);
 					lcl_key_name = lcl_key_name_buff;
 				} else
@@ -467,7 +474,7 @@ STATICFNDEF gtm_keystore_t *keystore_lookup_by_unres_key(char *search_field1, in
 					 * multiple keys.
 					 */
 					name_length = strlen(curr->key_name);
-					assert(name_length < GTM_PATH_MAX);
+					assert(name_length < YDB_PATH_MAX);
 					if (database)
 						node = keystore_lookup_by_keyname_plus(curr->key_name,
 								curr->key_path, SEARCH_BY_KEYPATH);
@@ -537,13 +544,22 @@ STATICFNDEF gtm_keystore_t *gtmcrypt_decrypt_key(char *key_path, int path_length
 	gtm_keystore_t		*node;
 	unsigned char		raw_key[SYMMETRIC_KEY_MAX];
 	int			raw_key_length;
+	int			gpgerr, gpg_attempt;
 
 	/* If we have seen a key with the same path, do not re-read it. */
 	if (NULL == (node = keystore_lookup_by_keypath(key_path)))
 	{	/* Now that we have the name of the symmetric key file, try to decrypt it. If gc_pk_get_decrypted_key returns a
 		 * non-zero status, it should have already populated the error string.
 		 */
-		if (0 != gc_pk_get_decrypted_key(key_path, raw_key, &raw_key_length))
+		gpg_attempt = 2;				/* Retry the libgpgme decryption request once */
+		do {
+			gpgerr = gc_pk_get_decrypted_key(key_path, raw_key, &raw_key_length);
+			if (GPG_ERR_DECRYPT_FAILED == gpgerr)	/* Cipher is not valid, which cannot be the case. */
+				gpg_attempt--;			/* Assume it's a gpg bug and retry */
+			else
+				gpg_attempt = 0;
+		} while (gpg_attempt);
+		if (0 != gpgerr)
 			return NULL;
 		if (0 == raw_key_length)
 		{
@@ -568,12 +584,12 @@ STATICFNDEF gtm_keystore_t *gtmcrypt_decrypt_key(char *key_path, int path_length
 					GTMCRYPT_HASH_LEN, GTMCRYPT_HASH_LEN, TRUE, FALSE);
 		}
 		INSERT_KEY_LINK(keystore_by_keypath_head, node, gtm_keystore_keypath_link_t,
-				link->key_path, key_path, path_length + 1, GTM_PATH_MAX, FALSE, FALSE);
+				link->key_path, key_path, path_length + 1, YDB_PATH_MAX, FALSE, FALSE);
 	}
 	if (-1 != name_length)
 	{	/* Only inserting a keyname-based link if the keyname was passed. */
 		INSERT_KEY_LINK(keystore_by_keyname_head, node, gtm_keystore_keyname_link_t,
-				key_name, key_name, name_length + 1, GTM_PATH_MAX, FALSE, TRUE);
+				key_name, key_name, name_length + 1, YDB_PATH_MAX, FALSE, TRUE);
 	}
 	return node;
 }
@@ -585,7 +601,7 @@ STATICFNDEF gtm_keystore_t *gtmcrypt_decrypt_key(char *key_path, int path_length
  */
 STATICFNDEF int keystore_refresh(void)
 {
-	int		n_mappings, status, just_read;
+	int		n_mappings, status, just_read, envvar_len;
 	char		*config_env;
 	struct stat	stat_info;
 	static long	last_modified_s, last_modified_ns;
@@ -602,9 +618,14 @@ STATICFNDEF int keystore_refresh(void)
 	{	/* First, make sure we have a proper environment varible and a regular configuration file. */
 		if (NULL != (config_env = getenv("gtmcrypt_config")))
 		{
-			if (0 == strlen(config_env))
+			if (0 == (envvar_len = strlen(config_env))) /* inline assignment */
 			{
 				UPDATE_ERROR_STRING(ENV_EMPTY_ERROR, "gtmcrypt_config");
+				return -1;
+			}
+			if (GTM_PATH_MAX <= envvar_len)
+			{
+				UPDATE_ERROR_STRING(ENV_TOOLONG_ERROR, "gtmcrypt_config", status);
 				return -1;
 			}
 			if (0 != stat(config_env, &stat_info))
@@ -624,7 +645,7 @@ STATICFNDEF int keystore_refresh(void)
 			return -1;
 		}
 		/* The gtmcrypt_config variable is defined and accessible. Copy it to a global for future references. */
-		strncpy(gc_config_filename, config_env, GTM_PATH_MAX);
+		strncpy(gc_config_filename, config_env, YDB_PATH_MAX);
 		just_read = TRUE;
 	}
 	assert(!CONFIG_FILE_UNREAD);
@@ -700,12 +721,12 @@ STATICFNDEF int read_files_section(config_t *cfgp)
 					"key attribute", ELLIPSIZE(gc_config_filename), i + 1);
 			return -1;
 		}
-		/* Length should be under GTM_PATH_MAX because that is the size of the array where the name of a key is stored. */
+		/* Length should be under YDB_PATH_MAX because that is the size of the array where the name of a key is stored. */
 		name_length = strlen(key_name) + 1;
-		if (GTM_PATH_MAX <= name_length)
+		if (YDB_PATH_MAX <= name_length)
 		{
 			UPDATE_ERROR_STRING("In config file " STR_ARG ", 'files' entry #%d's field length exceeds %d",
-					ELLIPSIZE(gc_config_filename), i + 1, GTM_PATH_MAX - 1);
+					ELLIPSIZE(gc_config_filename), i + 1, YDB_PATH_MAX - 1);
 			return -1;
 		}
 		if (NULL == (key_path = (char *)config_setting_get_string(elem)))
@@ -777,13 +798,13 @@ STATICFNDEF int read_database_section(config_t *cfgp)
 				"'database.keys' does not have a 'dat' item", ELLIPSIZE(gc_config_filename), i + 1);
 			return -1;
 		}
-		/* Length should be under GTM_PATH_MAX because that is the size of the array where the name of a key is stored. */
+		/* Length should be under YDB_PATH_MAX because that is the size of the array where the name of a key is stored. */
 		name_length = strlen(key_name) + 1 + STR_LIT_LEN(EXT_NEW);
-		if (GTM_PATH_MAX <= name_length)
+		if (YDB_PATH_MAX <= name_length)
 		{
 			UPDATE_ERROR_STRING("In config file " STR_ARG ", in entry #%d corresponding to 'database.keys' "
 					"file name exceeds %d", ELLIPSIZE(gc_config_filename), i + 1,
-					(int)(GTM_PATH_MAX - STR_LIT_LEN(EXT_NEW) - 1));
+					(int)(YDB_PATH_MAX - STR_LIT_LEN(EXT_NEW) - 1));
 			return -1;
 		}
 		if (!config_setting_lookup_string(elem, "key", (const char **)&key_path))
@@ -880,10 +901,10 @@ STATICFNDEF void insert_unresolved_key_link(char *keyname, char *keypath, int in
 	gtm_keystore_unres_key_link_t *node;
 
 	node = (gtm_keystore_unres_key_link_t *)MALLOC(SIZEOF(gtm_keystore_unres_key_link_t));
-	memset(node->key_name, 0, GTM_PATH_MAX);
-	strncpy(node->key_name, keyname, GTM_PATH_MAX);
-	memset(node->key_path, 0, GTM_PATH_MAX);
-	strncpy(node->key_path, keypath, GTM_PATH_MAX);
+	memset(node->key_name, 0, YDB_PATH_MAX);
+	strncpy(node->key_name, keyname, YDB_PATH_MAX);
+	memset(node->key_path, 0, YDB_PATH_MAX);
+	strncpy(node->key_path, keypath, YDB_PATH_MAX);
 	node->next = keystore_by_unres_key_head;
 	node->index = index;
 	node->status = status;
